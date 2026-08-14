@@ -1,0 +1,18 @@
+# Normalize line endings so the go:embed-ed payload (templates, CSS, JS, SVG)
+# is byte-identical on every platform: without this, a Windows checkout with
+# core.autocrlf=true embeds CRLF assets and produces a different binary than
+# Linux/CI, and exact-byte template assertions become platform-sensitive.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets are never normalized.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary

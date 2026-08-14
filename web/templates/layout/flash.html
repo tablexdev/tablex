@@ -1,0 +1,11 @@
+{{define "flash" -}}
+{{range .Flashes -}}
+<div class="alert tx-alert tx-alert-{{.Kind}}" role="alert">
+  <div class="tx-alert-msg">
+    {{if eq .Kind "success"}}{{icon "success"}}{{else if eq .Kind "error"}}{{icon "error"}}{{else if eq .Kind "warning"}}{{icon "warning"}}{{else}}{{icon "info"}}{{end}}
+    {{.Message}}
+  </div>
+  {{if .Detail}}<pre class="tx-alert-detail mb-0">{{.Detail}}</pre>{{end}}
+</div>
+{{- end}}
+{{- end}}

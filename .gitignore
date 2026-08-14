@@ -1,0 +1,36 @@
+# Build artifacts
+/bin/
+/dist/
+/staging/
+/tablex
+/tablex.exe
+coverage.out
+CLAUDE.md
+
+# Local runtime / scratch
+*.log
+*.db
+*.db-shm
+*.db-wal
+cookies.txt
+
+# Test/scratch output (smoke testing)
+tmp-demo.db
+/*.html
+/books.sql
+/authors.csv
+/db.json
+.reference
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Local session/scratch
+.claude/
+
+# JetBrains IDE
+.idea/
+
+# Editor backups
+*~

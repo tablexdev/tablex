@@ -1,0 +1,17 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <div class="tx-error-panel">
+    <h2 class="tx-h2">{{icon "error"}} Error{{if .Status}} {{.Status}}{{end}}</h2>
+    <div class="alert tx-alert tx-alert-error" role="alert">
+      <div class="tx-alert-msg">{{.Message}}</div>
+    </div>
+    {{if .Detail}}
+    <p class="text-muted mb-1">Statement:</p>
+    <pre class="tx-error-sql">{{.Detail}}</pre>
+    {{end}}
+    <a class="btn btn-tx btn-sm" href="{{urlHome}}" hx-get="{{urlHome}}" hx-push-url="true">{{icon "home"}} Back to home</a>
+  </div>
+</div>
+{{end}}
+{{- end}}

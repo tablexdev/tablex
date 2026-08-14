@@ -1,0 +1,543 @@
+name: Release
+
+# There was no way to obtain a TableX binary except by building it: CI
+# cross-compiled to /dev/null and the Docker image was built and discarded. This
+# workflow turns a tag into artifacts someone can actually verify and run.
+#
+# It uses ONLY the three actions this repo SHA-pins (checkout, setup-go, and
+# GitHub's own attest-build-provenance — the attestation API is only reachable
+# through it). Everything else is a command — `gh`, `docker buildx` and
+# `sha256sum` are on the runner, and cosign/syft/nfpm are fetched with
+# `go install` at a pinned version, so the module proxy's checksum discipline
+# covers the toolchain too. Every extra third-party action would be another SHA
+# to pin and re-audit for no capability that is missing here. It is also one
+# job on purpose: passing artifacts between jobs would need
+# upload/download-artifact and buy nothing, since publishing has to happen on
+# the machine that built and verified the files anyway.
+#
+# Step order is deliberate: everything is built, checksummed, verified, signed
+# and attested first, then the container image is pushed, and the GitHub
+# release is created LAST. A failure anywhere leaves nothing half-published —
+# in particular no release without its image ("latest" would point at
+# artifacts whose container does not exist). Re-runs are safe up to the last
+# step because ghcr pushes are idempotent and `gh release create` has not
+# happened yet.
+on:
+  push:
+    tags: ['v*']
+  # Dry run: builds, verifies and signs nothing. Use before tagging.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, tag-agnostic: two tags pushed close together would
+# otherwise race each other for the :latest image tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Raised from 45 to fit the post-publication verification WATCH (up to 25m via
+    # `timeout 25m gh run watch`) on top of the build-sign-attest-push sequence,
+    # with headroom for the containment steps.
+    timeout-minutes: 75
+    permissions:
+      contents: write       # create the GitHub release
+      packages: write       # push to ghcr.io
+      id-token: write       # keyless (Sigstore) signing + provenance
+      attestations: write   # GitHub artifact attestation over SHA256SUMS
+      actions: write        # read CI runs for the release gate, and dispatch
+                            # the install verification at the end
+      checks: read          # `gh run watch` reads the dispatched run's checks
+    env:
+      GO_VERSION: '1.26.6'
+      SYFT_VERSION: v1.20.0
+      COSIGN_VERSION: v2.4.3
+      NFPM_VERSION: v2.47.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Fast smoke check: an obviously broken tree fails here in ~90 seconds
+      # instead of after a 15-minute cross-build. The real gate is the next
+      # step — this one deliberately stays a weak subset (no -race, no
+      # staticcheck, no live databases).
+      - name: Gates
+        run: |
+          test -z "$(gofmt -l internal cmd web)" || (gofmt -l internal cmd web; exit 1)
+          go vet ./...
+          go test ./...
+
+      # A tag must describe a tree that passed CI — the full run, with the race
+      # detector, the linters and the live-database round-trips this job cannot
+      # duplicate. CI never triggers on tags, so require a completed, successful
+      # *push* run on master/main for this exact SHA. The event filter matters:
+      # a pull_request run carries the PR head as its head_sha, so without it a
+      # green PR run would vouch for a commit that was never merged.
+      - name: Require green CI for this SHA
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" \
+            --workflow CI --event push --limit 100 \
+            --json conclusion,status,event,headBranch,headSha)
+          qualifying=$(echo "$runs" | jq --arg sha "$GITHUB_SHA" \
+            '[.[] | select(.headSha == $sha and (.headBranch == "master" or .headBranch == "main"))]')
+          total=$(echo "$qualifying" | jq 'length')
+          green=$(echo "$qualifying" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')
+          pending=$(echo "$qualifying" | jq '[.[] | select(.status != "completed")] | length')
+          # Three refusals because they need three different operator actions:
+          # wait for the run, fix the tree, or push the commit in the first place.
+          if [ "$green" -gt 0 ]; then
+            echo "CI is green for $GITHUB_SHA"
+          elif [ "$pending" -gt 0 ]; then
+            echo "::error::CI for this SHA is still running — re-run this workflow when it is green"
+            exit 1
+          elif [ "$total" -gt 0 ]; then
+            echo "::error::CI for this SHA failed — fix and re-tag"
+            exit 1
+          else
+            echo "::error::this commit was never pushed to master/main; merge and push it before tagging"
+            exit 1
+          fi
+
+      - name: Resolve version
+        id: version
+        # A manual dispatch has no tag, so it builds a dev version stamped with
+        # the short commit hash instead of pretending to be a release.
+        #
+        # The separator is ".g", and both halves are load-bearing. A "+" would
+        # survive into every artifact name, where the checksum step's name guard
+        # rejects it, and into `--tag "$repo:$VERSION"`, where it is not a legal
+        # Docker tag character. The "g" is what keeps the remainder valid SemVer:
+        # a short hash is sometimes all digits with a leading zero (~0.37% of
+        # commits), and "0.0.0-dev.0123456" has a numeric prerelease identifier
+        # with a leading zero, which SemVer forbids. nfpm swallows that parse
+        # error instead of failing, so the prerelease would never fold to "~" and
+        # a raw "-" would land in the RPM Version: tag, where it is illegal —
+        # silently, and only for some commits. "g<sha>" always parses; it is the
+        # `git describe` convention.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            v="$GITHUB_REF_NAME"
+          else
+            v="0.0.0-dev.g$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "building $v"
+
+      # Bare binaries land in staging/, NOT dist/: dist/ must hold exactly the
+      # ship set (archives + packages + SBOM + SHA256SUMS and its signature),
+      # because `gh release create dist/*` publishes everything in it and
+      # `sha256sum tablex*` checksums everything matching in it.
+      - name: Build every target
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # CGO off and -trimpath: the whole point of this project is one static
+        # binary with no build-host paths baked into it.
+        run: |
+          while read -r os arch; do
+            [ -z "$os" ] && continue
+            ext=""
+            [ "$os" = "windows" ] && ext=".exe"
+            echo "==> $os/$arch"
+            mkdir -p "staging/${os}_${arch}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+              -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "staging/${os}_${arch}/tablex${ext}" ./cmd/tablex
+          done <<'TARGETS'
+          linux amd64
+          linux arm64
+          darwin amd64
+          darwin arm64
+          windows amd64
+          windows arm64
+          TARGETS
+
+      # A bare binary is not notice-compliant (go-sql-driver/mysql is MPL-2.0
+      # and the notices are NOT embedded in the binary), so what ships is an
+      # archive: binary + LICENSE + THIRD-PARTY-NOTICES. tar.gz for the
+      # unix-likes, zip for Windows — what their unpackers and the future
+      # brew/scoop manifests expect.
+      - name: Archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          for d in staging/*_*; do
+            target=$(basename "$d")
+            os=${target%_*}
+            cp LICENSE THIRD-PARTY-NOTICES "$d/"
+            if [ "$os" = "windows" ]; then
+              (cd "$d" && zip -q "$GITHUB_WORKSPACE/dist/tablex_${VERSION}_${target}.zip" \
+                tablex.exe LICENSE THIRD-PARTY-NOTICES)
+            else
+              tar -czf "dist/tablex_${VERSION}_${target}.tar.gz" \
+                -C "$d" tablex LICENSE THIRD-PARTY-NOTICES
+            fi
+          done
+          ls -l dist
+
+      # .deb and .rpm for the two linux architectures. nfpm expands env vars in
+      # its version/arch fields but not in contents paths, so the right binary
+      # is copied to the fixed staging/nfpm/tablex path per run. The rpm
+      # filename comes out hyphenated (tablex-1.0.0…rpm) — the checksum and
+      # release globs below say `tablex*` for exactly that reason.
+      - name: Packages (.deb / .rpm)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VERSION}"
+          mkdir -p staging/nfpm
+          for arch in amd64 arm64; do
+            cp "staging/linux_${arch}/tablex" staging/nfpm/tablex
+            for fmt in deb rpm; do
+              GOARCH="$arch" nfpm package -f packaging/nfpm.yaml -p "$fmt" -t dist/
+            done
+          done
+          # GitHub rewrites characters outside [A-Za-z0-9._-] to '.' when it
+          # stores a release asset, so tablex_1.0.0~rc.1_amd64.deb is SERVED as
+          # tablex_1.0.0.rc.1_amd64.deb and stops matching its SHA256SUMS line.
+          # Rename here, before checksums are taken, so the two always agree.
+          # Only the file name changes: the package's internal version stays
+          # 1.0.0~rc.1, and that is what dpkg and rpm actually order by.
+          for f in dist/*[~+]*; do
+            [ -e "$f" ] || continue
+            mv "$f" "$(printf '%s' "$f" | tr '~+' '..')"
+          done
+          ls -l dist
+
+      # The SBOM describes the SOURCE tree: dist/, staging/ and .git are
+      # excluded so the scan does not ingest the binaries it is supposed to
+      # describe. It must exist before the checksum step so SHA256SUMS covers
+      # it — an unverifiable SBOM is decoration.
+      - name: SBOM
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go install "github.com/anchore/syft/cmd/syft@${SYFT_VERSION}"
+          syft scan dir:. \
+            --exclude ./dist/'**' --exclude ./staging/'**' --exclude ./.git/'**' \
+            -o spdx-json > "dist/tablex_${VERSION}_sbom.spdx.json"
+
+      - name: Checksums
+        working-directory: dist
+        # One sorted file over everything in the ship set (archives, packages,
+        # SBOM), so `sha256sum -c SHA256SUMS` verifies the whole release.
+        #
+        # The guard first: a checksum file is only useful if the names in it
+        # are the names GitHub serves. Anything outside [A-Za-z0-9._-] gets
+        # rewritten on upload, which silently breaks `sha256sum -c` for that
+        # artifact — it happened to the ~ in the rc package names.
+        run: |
+          bad=""
+          for f in *; do
+            case "$f" in
+              *[!A-Za-z0-9._-]*) bad="$bad $f" ;;
+            esac
+          done
+          if [ -n "$bad" ]; then
+            echo "::error::artifact names hold characters GitHub rewrites on upload:$bad"
+            exit 1
+          fi
+          sha256sum tablex* | sort -k2 > SHA256SUMS
+
+      # A release that ships an unrunnable binary is worse than no release.
+      # linux/amd64 is the platform this runner can execute, so its archive,
+      # .deb and .rpm are unpacked exactly the way a user would unpack them and
+      # the binary inside each must report the version it was stamped with.
+      - name: Verify the artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          check() {
+            got=$("$1" -version)
+            echo "$2: $got"
+            test "$got" = "tablex ${VERSION}" || {
+              echo "::error::$2 reports '$got', expected 'tablex ${VERSION}'"; exit 1; }
+          }
+          # The archive, as a user would install it.
+          mkdir -p verify/archive
+          tar -xzf "dist/tablex_${VERSION}_linux_amd64.tar.gz" -C verify/archive
+          test -s verify/archive/LICENSE
+          test -s verify/archive/THIRD-PARTY-NOTICES
+          check verify/archive/tablex archive
+          # The .deb, as dpkg would lay it out.
+          mkdir -p verify/deb
+          dpkg-deb -x dist/tablex_*_amd64.deb verify/deb
+          check verify/deb/usr/bin/tablex deb
+          test -s verify/deb/usr/share/doc/tablex/THIRD-PARTY-NOTICES
+          # The .rpm, via rpm2cpio (no rpm database needed). nfpm's cpio
+          # payload uses absolute /usr/... paths — --no-absolute-filenames
+          # re-roots them under verify/rpm instead of letting cpio try (and
+          # fail) to write into the runner's real /usr/bin.
+          mkdir -p verify/rpm
+          (cd verify/rpm && rpm2cpio "$GITHUB_WORKSPACE"/dist/tablex-*x86_64.rpm | cpio -idm --quiet --no-absolute-filenames)
+          check verify/rpm/usr/bin/tablex rpm
+          # The Windows zips cannot run here, but they can be proven unbroken.
+          unzip -t -q "dist/tablex_${VERSION}_windows_amd64.zip"
+          unzip -t -q "dist/tablex_${VERSION}_windows_arm64.zip"
+          test -s "dist/tablex_${VERSION}_sbom.spdx.json"
+
+      - name: Sign the checksums
+        if: github.ref_type == 'tag'
+        # Keyless (Sigstore/Fulcio): no long-lived private key to store or rotate.
+        # The signature is bound to this workflow's identity and verified with
+        #   cosign verify-blob --certificate-identity-regexp ... \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     --signature SHA256SUMS.sig --certificate SHA256SUMS.pem SHA256SUMS
+        # Signing the checksum file covers every artifact it lists.
+        run: |
+          go install "github.com/sigstore/cosign/v2/cmd/cosign@${COSIGN_VERSION}"
+          cosign sign-blob --yes \
+            --output-signature dist/SHA256SUMS.sig \
+            --output-certificate dist/SHA256SUMS.pem \
+            dist/SHA256SUMS
+
+      # The second, independent verification path: GitHub's own provenance
+      # attestation over the checksum file, checked by end users with
+      #   gh attestation verify SHA256SUMS --repo <owner>/<repo> \
+      #     --signer-workflow <owner>/<repo>/.github/workflows/release.yml
+      - name: Attest build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/SHA256SUMS
+
+      - name: Multi-arch image
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        # The same Dockerfile CI builds multi-arch on every push, so this
+        # publishes a path that is already tested rather than one that exists
+        # only at release time. :latest moves only for stable releases — a
+        # pre-release must never be what `docker pull tablex` resolves to.
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          repo=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          tags=(--tag "${repo}:${VERSION}")
+          case "$VERSION" in
+            *-*) echo "pre-release: not tagging :latest" ;;
+            *)   tags+=(--tag "${repo}:latest") ;;
+          esac
+          docker buildx create --use --name tablex-release
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "VERSION=${VERSION}" \
+            "${tags[@]}" \
+            --provenance=true \
+            --sbom=true \
+            --metadata-file meta.json \
+            --push .
+          # buildx reports the digest it pushed, so the image is signed BY DIGEST
+          # rather than by a tag that could be moved afterwards. Read from the
+          # metadata file rather than an `imagetools --format` template: the
+          # template's braces collide with the workflow expression syntax.
+          digest=$(jq -r '."containerimage.digest"' meta.json)
+          test -n "$digest" && test "$digest" != "null"
+          echo "IMAGE=${repo}@${digest}" >> "$GITHUB_ENV"
+
+      - name: Sign the image
+        if: github.ref_type == 'tag'
+        run: cosign sign --yes "$IMAGE"
+
+      # A newly published GHCR package is PRIVATE by default, and making one
+      # public is a manual step in the package's own settings that no workflow
+      # can perform (linking it to the repository inherits permissions, not
+      # visibility — and public is one-way). README documents
+      # `docker run ghcr.io/tablexdev/tablex` with no login, so a private package
+      # would leave that instruction broken with nothing to notice it by.
+      #
+      # A clean DOCKER_CONFIG is what makes this a real check: `docker login` ran
+      # earlier in this job, so an ordinary pull would succeed from the
+      # credential store and prove nothing.
+      #
+      # A job cannot pause for a human, so on the FIRST run of a recreated
+      # package this step FAILS: an administrator flips visibility and re-runs.
+      # Re-runs are safe here for the reason the header gives — ghcr pushes are
+      # idempotent and `gh release create` has not happened yet.
+      - name: The image must be anonymously pullable
+        if: github.ref_type == 'tag'
+        run: |
+          tmp=$(mktemp -d)
+          if ! DOCKER_CONFIG="$tmp" docker pull "$IMAGE"; then
+            echo "::error::$IMAGE is not anonymously pullable. A newly published GHCR package is private by default: make it public in the package settings (Danger Zone -> Change visibility), then re-run this workflow."
+            exit 1
+          fi
+
+      # LAST on purpose — see the header. By the time this runs, every asset
+      # exists, verifies, is signed and attested, and the container image is
+      # pushed; nothing can fail after the release becomes visible, and the
+      # `release: published` event fires only when the release is complete.
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        # --verify-tag so a typo cannot invent a release for a tag that is not
+        # there. Notes come from the CHANGELOG section for this version rather
+        # than from generated commit summaries: the CHANGELOG is written for
+        # somebody deciding whether to upgrade, and a list of commit subjects is
+        # not. An rc has no CHANGELOG section and gets a stub, plus --prerelease
+        # so /releases/latest never resolves to it.
+        run: |
+          v="${VERSION#v}"
+          awk -v ver="$v" '
+            /^## /   { flag = index($0, "## [" ver "]") == 1; next }
+            /^\[.*\]: / { flag = 0 }
+            flag { print }
+          ' CHANGELOG.md > notes.md
+          if ! [ -s notes.md ]; then
+            echo "Pre-release ${VERSION}. See CHANGELOG.md on the tagged commit for what is coming in the final release." > notes.md
+          fi
+          args=(--verify-tag --title "TableX ${VERSION}" --notes-file notes.md)
+          case "$VERSION" in
+            *-*) args+=(--prerelease) ;;
+          esac
+          gh release create "$VERSION" "${args[@]}" dist/*
+
+      # Verify what was just published, using the public install paths a user
+      # would. This has to be an explicit dispatch: GitHub will not start a
+      # workflow from an event the built-in GITHUB_TOKEN produced, so the
+      # `release: published` trigger in install-verify.yml never fires for the
+      # release created above. workflow_dispatch is the documented exception
+      # to that rule, which is why this works with no PAT.
+      #
+      # This is POST-PUBLICATION MONITORING, not a gate: `gh release create`
+      # above carries no --draft, so the release is already public and the real
+      # one-liner (which fetches from the release URL, a path a draft does not
+      # serve) is already reachable. What this step adds is: watch the dispatched
+      # verification, and CONTAIN a confirmed regression by demoting a STABLE
+      # release from `latest` (an allowlisted failure only). It never deletes the
+      # release or the GHCR image — both may already have been fetched, and the
+      # artifacts were verified locally before publication. Recovery is a
+      # documented MANUAL procedure (SECURITY.md); nothing here files an issue.
+      - name: Verify the published release (monitored, not gated)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          # The default shell is `bash -e {0}` (no pipefail), so every fallible
+          # command below captures its own status — nothing on the failure path
+          # may abort the step before containment runs.
+
+          # 1) Dispatch install-verify against the REAL public host (tablex.dev),
+          #    authenticated, tagged with this run's id so the run `gh workflow
+          #    run` does not report back can be found.
+          gh workflow run install-verify.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
+            -f version="$VERSION" \
+            -f base="https://tablex.dev" \
+            -f source_run_id="$SOURCE_RUN_ID" \
+            || { echo "::error::failed to dispatch install-verify; ${VERSION} is unverified"; exit 1; }
+
+          # 2) Resolve the dispatched run by the marker run-name puts in
+          #    displayTitle (NOT name/workflowName, identical for every run).
+          marker="[source-run:${SOURCE_RUN_ID}]"
+          run_id=""
+          for _ in $(seq 1 15); do
+            run_id=$(gh run list --repo "$GITHUB_REPOSITORY" \
+              --workflow install-verify.yml --limit 40 \
+              --json databaseId,displayTitle \
+              --jq "map(select(.displayTitle | contains(\"${marker}\"))) | .[0].databaseId // empty") || run_id=""
+            [ -n "$run_id" ] && break
+            sleep 8
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::could not correlate the install-verify run (marker ${marker}); ${VERSION} is unverified — check install-verify manually"
+            exit 1
+          fi
+          echo "install-verify run: $run_id"
+
+          # 3) Watch it, bounded so the containment steps still fit the parent
+          #    timeout. Capture the status; timeout's 124 is INDETERMINATE and
+          #    must never drive containment (a result we never observed).
+          watch_status=0
+          timeout 25m gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status || watch_status=$?
+          if [ "$watch_status" -eq 124 ]; then
+            echo "::error::install-verify (run ${run_id}) did not finish within the watch budget; result INDETERMINATE — ${VERSION} unconfirmed, handle manually"
+            exit 1
+          fi
+          if [ "$watch_status" -eq 0 ]; then
+            echo "install-verify passed: ${VERSION} is confirmed"
+            exit 0
+          fi
+          echo "::warning::install-verify (run ${run_id}) reported a failure for ${VERSION}"
+
+          # 4) Classify. Demote ONLY a stable version, ONLY when an ALLOWLISTED
+          #    (job, step) pair reports conclusion==failure EXACTLY once. Every
+          #    other outcome (a different step, skipped/cancelled/timed_out, zero
+          #    or duplicate matches, an unreadable run) is indeterminate → the run
+          #    stays red and recovery is manual. The allowlist is three
+          #    deterministic, release-bound steps; each is called explicitly so no
+          #    heredoc indentation can corrupt a name.
+          demote=0
+          case "$VERSION" in
+            *-*)
+              echo "prerelease ${VERSION}: already not latest — the red run plus the notes warning is the whole containment"
+              ;;
+            *)
+              jobs_json=$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json jobs) || jobs_json=""
+              if [ -z "$jobs_json" ]; then
+                echo "::warning::could not read job/step conclusions; indeterminate (no demotion)"
+              else
+                check_allow() {
+                  n=$(printf '%s' "$jobs_json" | jq --arg j "$1" --arg s "$2" \
+                    '[.jobs[] | select(.name == $j) | .steps[] | select(.name == $s and .conclusion == "failure")] | length') || n=0
+                  echo "allowlist [$1 / $2]: ${n} failing match(es)"
+                  if [ "$n" = "1" ]; then demote=1; fi
+                  return 0
+                }
+                check_allow "verify-supply-chain" "Checksums cover every asset, under the names GitHub serves"
+                check_allow "verify-packages" "The .deb installs and runs"
+                check_allow "verify-packages" "The .rpm installs and runs (fedora container)"
+              fi
+              ;;
+          esac
+
+          # 5) Contain. Each mutation captured independently — a failed demotion
+          #    must not prevent the notes warning, or vice versa.
+          demote_status=0
+          notes_status=0
+          if [ "$demote" -eq 1 ]; then
+            echo "demoting stable ${VERSION} from latest (an allowlisted verification step failed)"
+            gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --prerelease || demote_status=$?
+          fi
+          # Idempotent notes warning: strip any previous delimited block, then
+          # append a fresh one — a re-verified release must not accumulate copies.
+          #
+          # The READ must succeed before the write is attempted. `gh release
+          # edit --notes-file` REPLACES the body outright, so writing on the
+          # back of a failed read (rate limit, 5xx) would publish a release
+          # whose entire changelog is the warning block — destroying the notes
+          # to report a problem. On a failed read the warning is skipped and
+          # said out loud; the run still goes red below, and the demotion (the
+          # containment that actually matters) has already happened.
+          if body=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body); then
+            cleaned=$(printf '%s\n' "$body" | sed '/<!-- tablex-verify-warning -->/,/<!-- \/tablex-verify-warning -->/d')
+            {
+              printf '%s\n\n' "$cleaned"
+              printf '%s\n' '<!-- tablex-verify-warning -->'
+              printf '> WARNING: post-publication verification (install-verify run %s) FAILED for this release. Treat with caution until re-verified; SECURITY.md documents the manual recovery.\n' "$run_id"
+              printf '%s\n' '<!-- /tablex-verify-warning -->'
+            } > verify-notes.md
+            gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --notes-file verify-notes.md || notes_status=$?
+          else
+            notes_status=1
+            echo "::warning::could not read ${VERSION}'s current release notes; SKIPPING the notes warning rather than overwriting the changelog with it — add the warning by hand (see SECURITY.md)"
+          fi
+
+          # 6) Combine and go red so the release run reflects the failure.
+          echo "watch=${watch_status} demote=${demote_status} notes=${notes_status}"
+          echo "::error::${VERSION} was not confirmed by install-verify; an allowlisted stable-release failure (if any) has been demoted from latest and the notes carry a warning. Recovery is manual — see SECURITY.md."
+          exit 1

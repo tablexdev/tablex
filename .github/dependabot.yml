@@ -1,0 +1,36 @@
+version: 2
+
+# Dependencies here are few and deliberate (four pure-Go modules and a handful of
+# SHA-pinned actions), which is exactly why automated updates are worth having:
+# there is no noise to drown a real advisory in.
+#
+# The vendored front-end assets (Bootstrap, htmx, Alpine, CodeMirror) are NOT
+# covered — they are checked-in files with SHA-256 hashes in web/static/vendor/
+# MANIFEST, enforced by web/vendor_test.go. Updating one means re-vendoring and
+# re-hashing by hand, on purpose: an automated bump would break the manifest test,
+# which is the intended behaviour.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # One PR for the drivers: they are updated and live-tested together.
+      drivers:
+        patterns:
+          - "github.com/go-sql-driver/mysql"
+          - "github.com/jackc/pgx/*"
+          - "modernc.org/sqlite"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"

@@ -1,0 +1,55 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "structure"}} Designer · {{.Scope.DB}}</h2>
+  <p class="text-muted small">Schema map: each table's columns (primary keys and foreign keys marked) and the relationships between them.</p>
+
+  {{if .Skipped}}
+  <div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} Some tables could not be fully introspected; the map below may be incomplete.</div></div>
+  {{end}}
+
+  {{if .Tables}}
+  <div class="tx-designer-grid">
+    {{range .Tables}}
+    {{$t := .}}
+    <div class="tx-designer-table card">
+      <div class="card-header tx-designer-th">
+        <a href="{{.StructURL}}" hx-get="{{.StructURL}}" hx-push-url="true">{{icon "table"}} {{.Name}}</a>
+      </div>
+      <table class="tx-designer-cols">
+        {{range .Columns}}
+        {{$fk := index $t.ForeignKey .Name}}
+        <tr>
+          <td class="tx-designer-col">{{if .IsPrimaryKey}}{{icon "key"}} {{end}}{{.Name}}{{if $fk}} {{icon "fk"}}{{end}}</td>
+          <td class="text-muted tx-col-type">{{.DataType}}{{if $fk}} → {{$fk}}{{end}}</td>
+        </tr>
+        {{end}}
+        {{if .Error}}<tr><td colspan="2" class="tx-danger small">{{icon "warning"}} {{.Error}}</td></tr>{{end}}
+      </table>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  {{template "empty_state" "No tables in this database."}}
+  {{end}}
+
+  {{if .HasFKs}}
+  <h3 class="tx-section-title">{{icon "fk"}} Relationships</h3>
+  {{if .Relationships}}
+  <div class="table-responsive">
+    <table class="table table-sm tx-results">
+      <thead><tr><th scope="col">From</th><th scope="col" class="text-center">→</th><th scope="col">References</th></tr></thead>
+      <tbody>
+        {{range .Relationships}}
+        <tr><td><code>{{.From}}({{.FromCols}})</code></td><td class="text-center">→</td><td><code>{{.To}}({{.ToCols}})</code></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="text-muted">No foreign-key relationships are defined in this database.</p>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
+{{- end}}

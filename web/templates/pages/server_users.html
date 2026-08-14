@@ -1,0 +1,168 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "users"}} User accounts</h2>
+  {{if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>{{end}}
+  {{if .Users}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">User</th><th scope="col">Host</th><th scope="col">Login</th><th scope="col">Attributes</th>{{if .CanManage}}<th scope="col" class="text-center">Action</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Users}}
+        <tr>
+          <td class="tx-tbl-name">{{icon "user"}} {{.Name}}</td>
+          <td class="text-muted">{{default .Host "—"}}</td>
+          <td>{{yesno .CanLogin}}</td>
+          <td class="text-muted">
+            {{if and $.Body.CanManage $.Body.HasRoleAttributes}}
+            <form method="post" action="{{$.Body.PostURL}}" hx-post="{{$.Body.PostURL}}" class="d-inline-flex flex-wrap gap-2 align-items-center">
+              {{template "csrf" $.CSRF}}
+              <input type="hidden" name="action" value="alter_attrs">
+              <input type="hidden" name="user_name" value="{{.Name}}">
+              <label class="mb-0"><input type="checkbox" name="attr_login"{{if .CanLogin}} checked{{end}}> Login</label>
+              <label class="mb-0"><input type="checkbox" name="attr_super"{{if .IsSuper}} checked{{end}}> Superuser</label>
+              <label class="mb-0"><input type="checkbox" name="attr_createdb"{{if contains .Attributes "Create DB"}} checked{{end}}> Create DB</label>
+              <label class="mb-0"><input type="checkbox" name="attr_createrole"{{if contains .Attributes "Create role"}} checked{{end}}> Create role</label>
+              <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
+            </form>
+            {{else}}{{default .Attributes "—"}}{{end}}
+          </td>
+          {{if $.Body.CanManage}}
+          <td class="text-center">
+            <form method="post" action="{{$.Body.PostURL}}" hx-post="{{$.Body.PostURL}}" class="d-inline-flex gap-1 align-items-center me-2">
+              {{template "csrf" $.CSRF}}
+              <input type="hidden" name="action" value="set_password">
+              <input type="hidden" name="user_name" value="{{.Name}}">
+              <input type="hidden" name="user_host" value="{{.Host}}">
+              <input type="password" name="password" class="form-control form-control-sm" placeholder="New password" autocomplete="new-password" aria-label="New password for {{.Name}}" required>
+              <button type="submit" class="btn btn-sm btn-outline-secondary">{{icon "key"}} Set</button>
+            </form>
+            {{if and (eq .Name $.Body.SelfName) (eq .Host $.Body.SelfHost)}}
+            <span class="text-muted small" title="You are logged in as this account">current</span>
+            {{else}}
+            {{$account := .Name}}{{if .Host}}{{$account = printf "%s@%s" .Name .Host}}{{end}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $.Body.PostURL "Action" "drop_user"
+              "Fields" (dict "user_name" .Name "user_host" .Host)
+              "Confirm" (printf "Drop account %s? This cannot be undone." $account)
+              "Label" "Drop" "Class" "d-inline")}}
+            {{end}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else if not .Error}}
+  {{template "empty_state" (default .Empty "No accounts.")}}
+  {{end}}
+
+  {{if .CanManage}}
+  <h3 class="tx-section-title">{{icon "add"}} Create account</h3>
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="card tx-card tx-maxw-lg">
+    <div class="card-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="create_user">
+      <div class="row mb-2">
+        <label for="new_user_name" class="col-sm-4 col-form-label">User name</label>
+        <div class="col-sm-8"><input type="text" name="user_name" id="new_user_name" class="form-control form-control-sm" autocomplete="off" required></div>
+      </div>
+      {{if .HasHost}}
+      <div class="row mb-2">
+        <label for="new_user_host" class="col-sm-4 col-form-label">Host</label>
+        <div class="col-sm-8">
+          <input type="text" name="user_host" id="new_user_host" class="form-control form-control-sm" placeholder="% (any host)" autocomplete="off">
+          <div class="form-text">Blank means <code>%</code> (any host).</div>
+        </div>
+      </div>
+      {{end}}
+      <div class="row mb-2">
+        <label for="new_user_password" class="col-sm-4 col-form-label">Password</label>
+        <div class="col-sm-8"><input type="password" name="password" id="new_user_password" class="form-control form-control-sm" autocomplete="new-password" required></div>
+      </div>
+      {{if .HasRoleAttributes}}
+      <div class="row mb-2">
+        <span class="col-sm-4 col-form-label">Attributes</span>
+        <div class="col-sm-8 d-flex flex-wrap gap-3 align-items-center">
+          <label class="mb-0"><input type="checkbox" name="attr_login" checked> Login</label>
+          <label class="mb-0"><input type="checkbox" name="attr_super"> Superuser</label>
+          <label class="mb-0"><input type="checkbox" name="attr_createdb"> Create DB</label>
+          <label class="mb-0"><input type="checkbox" name="attr_createrole"> Create role</label>
+        </div>
+      </div>
+      {{end}}
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "add"}} Create account</button>
+    </div>
+  </form>
+  {{end}}
+
+  {{if .CanManageRoles}}
+  <h3 class="tx-section-title">{{icon "users"}} Role memberships</h3>
+  {{if .RolesError}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.RolesError}}</div></div>{{end}}
+  {{if .Memberships}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">Role</th><th scope="col">Granted to</th><th scope="col">Admin option</th>{{if .CanManage}}<th scope="col" class="text-center">Action</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Memberships}}
+        {{$role := $.Body.Account .Role .RoleHost}}{{$member := $.Body.Account .Member .MemberHost}}
+        <tr>
+          <td class="tx-tbl-name">{{icon "user"}} {{.Role}}{{if .RoleHost}}@{{.RoleHost}}{{end}}</td>
+          <td>{{.Member}}{{if .MemberHost}}@{{.MemberHost}}{{end}}</td>
+          <td>{{yesno .AdminOption}}</td>
+          {{if $.Body.CanManage}}
+          <td class="text-center">
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $.Body.PostURL "Action" "revoke_role"
+              "Fields" (dict "role" $role "member" $member)
+              "Confirm" (printf "Revoke role %s from %s?" $role $member)
+              "Label" "Revoke" "Class" "d-inline")}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else if not .RolesError}}
+  {{template "empty_state" "No role memberships."}}
+  {{end}}
+
+  {{if .CanManage}}
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="card tx-card tx-maxw-lg">
+    <div class="card-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="grant_role">
+      <div class="row mb-2">
+        <label for="grant_role_role" class="col-sm-4 col-form-label">Role</label>
+        <div class="col-sm-8">
+          <select name="role" id="grant_role_role" class="form-select form-select-sm" required>
+            <option value="">— choose a role —</option>
+            {{range .Users}}<option value="{{$.Body.Account .Name .Host}}">{{$.Body.Account .Name .Host}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+      <div class="row mb-2">
+        <label for="grant_role_member" class="col-sm-4 col-form-label">Granted to</label>
+        <div class="col-sm-8">
+          <select name="member" id="grant_role_member" class="form-select form-select-sm" required>
+            <option value="">— choose an account —</option>
+            {{range .Users}}<option value="{{$.Body.Account .Name .Host}}">{{$.Body.Account .Name .Host}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+      <div class="row mb-2">
+        <span class="col-sm-4 col-form-label"></span>
+        <div class="col-sm-8">
+          <label class="mb-0"><input type="checkbox" name="admin_option" value="1"> WITH ADMIN OPTION</label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "add"}} Grant role</button>
+    </div>
+  </form>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
+{{- end}}

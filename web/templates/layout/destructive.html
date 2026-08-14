@@ -1,0 +1,30 @@
+{{/* destructive renders the small POST form behind every irreversible action —
+     drop / revoke / truncate. Eight sites shared this markup verbatim, which
+     meant eight places to keep the CSRF field, the htmx wiring and the
+     confirmation in step.
+
+     Parameters (build one with the `dict` helper):
+       CSRF        required — the page token, i.e. $.CSRF
+       URL         required — the POST target, used for action= and hx-post=
+       Action      required — the handler's action value
+       Confirm     required — the confirmation prompt
+       Fields      optional — map of extra hidden name→value pairs (sorted)
+       Label       optional — button text; omitted renders an icon-only button
+       Title       optional — button title/aria-label (REQUIRED when Label is
+                   empty, or the icon button has no accessible name)
+       Icon        optional — icon name, default "drop"
+       Class       optional — form class; omitted renders no class attribute
+                   (the inline sites pass "d-inline", the block ones pass none)
+       ButtonClass optional — default "btn btn-sm btn-tx-danger"
+
+     hx-target is inherited from <body>; see base.html. */}}
+{{define "destructive" -}}
+<form method="post" action="{{.URL}}" hx-post="{{.URL}}" hx-confirm="{{.Confirm}}"{{with .Class}} class="{{.}}"{{end}}>
+  {{template "csrf" .CSRF}}
+  <input type="hidden" name="action" value="{{.Action}}">
+  {{- range $name, $value := .Fields}}
+  <input type="hidden" name="{{$name}}" value="{{$value}}">
+  {{- end}}
+  <button type="submit" class="{{default .ButtonClass "btn btn-sm btn-tx-danger"}}"{{with .Title}} title="{{.}}" aria-label="{{.}}"{{end}}>{{icon (default .Icon "drop")}}{{with .Label}} {{.}}{{end}}</button>
+</form>
+{{- end}}

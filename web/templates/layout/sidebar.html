@@ -1,0 +1,74 @@
+{{define "sidebar" -}}
+{{/* <nav>, not a div with role="navigation": the element carries the
+     landmark itself, and one of them is the markup the other describes. */}}
+<nav id="tx_nav" class="tx-nav" aria-label="Database navigation">
+  <div id="tx_nav_resizer" class="tx-nav-resizer"></div>
+  <div id="tx_nav_content" class="tx-nav-content">
+    <div id="tx_nav_header" class="tx-nav-header">
+      <a href="{{urlHome}}" class="tx-logo" hx-get="{{urlHome}}" hx-target="#page_content" hx-push-url="true">
+        <span class="tx-logo-mark">▦</span> <span class="tx-logo-text">TableX</span>
+      </a>
+      <div class="tx-nav-links">
+        <a href="{{urlHome}}" title="Home" aria-label="Home" hx-get="{{urlHome}}" hx-target="#page_content" hx-push-url="true">{{icon "home"}}</a>
+        <a href="https://tablex.dev" title="Documentation" aria-label="Documentation" target="_blank" rel="noopener">{{icon "docs"}}</a>
+        {{template "logout_form" .}}
+      </div>
+    </div>
+
+    {{with .Nav}}
+    <div class="tx-nav-server">{{icon "server"}} <span>{{$.ServerName}}</span></div>
+    <div class="tx-nav-filter">
+      {{icon "filter"}}
+      <input type="search" id="tx-nav-filter-input" class="form-control form-control-sm"
+             placeholder="Filter databases and tables" autocomplete="off" aria-label="Filter databases and tables">
+    </div>
+    <div id="tx_nav_tree" class="tx-tree list_container">
+      {{template "nav_tree" .}}
+    </div>
+    {{end}}
+  </div>
+</nav>
+{{- end}}
+
+{{/* tree_node renders one navigation node: a disclosure (details) for
+     expandable database/schema nodes, or a plain link for tables/views. */}}
+{{define "tree_node" -}}
+<li class="tx-tree-node tx-node-{{.Kind}}{{if .IsSystem}} tx-system{{end}}{{if .Active}} active{{end}}" data-name="{{.Name}}">
+  {{if .IsError}}
+  <div class="tx-tree-row tx-tree-leaf tx-tree-error" role="alert">
+    <span class="tx-tree-icon">{{icon .Icon}}</span>
+    <span class="tx-tree-error-text">{{.Label}}</span>
+  </div>
+  {{else if .Expandable}}
+  <details class="tx-tree-details"{{if .Expanded}} open{{end}}
+    {{if not .Expanded}}hx-get="{{.LoadURL}}" hx-trigger="toggle once" hx-target="find ul.tx-tree-children" hx-swap="innerHTML"{{end}}>
+    <summary class="tx-tree-row">
+      <span class="tx-tree-icon">{{icon .Icon}}</span>
+      <a class="tx-tree-link" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#page_content" hx-push-url="true">{{.Label}}</a>
+    </summary>
+    <ul class="tx-tree-children list_container">
+      {{if .Expanded}}{{range .Children}}{{template "tree_node" .}}{{end}}
+      {{else}}<li class="tx-tree-loading">Loading…</li>{{end}}
+    </ul>
+  </details>
+  {{else}}
+  <div class="tx-tree-row tx-tree-leaf{{if .Active}} active{{end}}">
+    <span class="tx-tree-icon">{{icon .Icon}}</span>
+    <a class="tx-tree-link" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#page_content" hx-push-url="true">{{.Label}}</a>
+  </div>
+  {{end}}
+</li>
+{{- end}}
+
+{{/* nav_tree renders the top-level database tree — used both in the sidebar and
+     as the htmx fragment (GET /nav) that refreshes it after a structural change. */}}
+{{define "nav_tree" -}}
+<ul class="tx-tree-root">
+  {{range .Databases}}{{template "tree_node" .}}{{end}}
+</ul>
+{{- end}}
+
+{{/* nav_children is the htmx fragment returned when a node is expanded. */}}
+{{define "nav_children" -}}
+{{if .}}{{range .}}{{template "tree_node" .}}{{end}}{{else}}<li class="tx-tree-empty">empty</li>{{end}}
+{{- end}}

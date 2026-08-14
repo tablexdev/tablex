@@ -1,0 +1,17 @@
+{{define "collation_select" -}}
+{{- /* Collation <select> for a create-database form, shared by the server
+       Databases page and the database Operations page. The argument is a
+       (list collations extraClass) pair: the charset-grouped collation list,
+       plus an extra CSS class ("" for none — server_databases constrains its
+       width with tx-maxw-sm). Renders nothing when the engine reports no
+       collations. */ -}}
+{{$cols := index . 0}}{{$class := index . 1 -}}
+{{if $cols}}
+<select name="db_collation" class="form-select form-select-sm{{with $class}} {{.}}{{end}}" aria-label="Collation">
+  <option value="">Collation (server default)</option>
+  {{range $cols}}<optgroup label="{{.Charset}}">
+    {{range .Collations}}<option value="{{.Name}}">{{.Name}}{{if .Default}} *{{end}}</option>{{end}}
+  </optgroup>{{end}}
+</select>
+{{end}}
+{{- end}}

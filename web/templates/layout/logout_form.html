@@ -1,0 +1,6 @@
+{{define "logout_form" -}}
+<form method="post" action="/logout" class="d-inline tx-logout-form">
+  {{template "csrf" $.CSRF}}
+  <button type="submit" class="tx-iconbtn" title="Log out" aria-label="Log out">{{icon "logout"}}</button>
+</form>
+{{- end}}

@@ -1,0 +1,19 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{if eq .Mode "edit"}}{{icon "edit"}} Edit row{{else}}{{icon "insert"}} Insert row{{end}} · {{$sc.Table}}</h2>
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" data-tx-guard="your changes to this row">
+    {{template "csrf" $.CSRF}}
+    {{if eq .Mode "edit"}}<input type="hidden" name="where_token" value="{{.WhereToken}}">{{end}}
+    <div class="table-responsive">
+    {{template "edit_fields" .Row}}
+    </div>
+    <div class="tx-sql-actions">
+      {{if $.Allow.Write}}<button type="submit" class="btn btn-primary btn-sm">{{if eq .Mode "edit"}}{{icon "check"}} Save{{else}}{{icon "insert"}} Insert{{end}}</button>{{end}}
+      <a class="btn btn-tx btn-sm" href="{{.BrowseURL}}" hx-get="{{.BrowseURL}}" hx-push-url="true">Cancel</a>
+    </div>
+  </form>
+</div>
+{{end}}
+{{- end}}

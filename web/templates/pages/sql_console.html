@@ -1,0 +1,51 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page" x-data="sqlConsole">
+  <h2 class="tx-h2">{{icon "sql"}} SQL{{if .Scope.Table}} · {{.Scope.Table}}{{else if .Scope.DB}} · {{.Scope.DB}}{{end}}</h2>
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" hx-push-url="true" x-on:submit="run" data-tx-guard="the SQL you typed">
+    {{template "csrf" $.CSRF}}
+    <div class="tx-sql-editor-wrap">
+      <textarea name="sql_query" class="tx-sql-editor" rows="6" spellcheck="false" aria-label="SQL query">{{.Query}}</textarea>
+    </div>
+    <div class="tx-sql-actions">
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "sql"}} Run</button>
+      {{if hasCap $.Caps "Explain"}}<button type="submit" name="explain" value="1" class="btn btn-tx btn-sm" x-on:click="run">{{icon "info"}} Explain</button>{{end}}
+      <span class="text-muted small">Runs under your own database credentials.</span>
+    </div>
+  </form>
+
+  {{if .Ran}}
+  <div class="tx-sql-results">
+    {{if gt .Total (len .Results)}}
+    <div class="tx-result-meta text-muted">Showing the first {{len .Results}} of {{.Total}} statement result(s).</div>
+    {{end}}
+    {{range .Results}}
+      {{if .Error}}
+      <div class="alert tx-alert tx-alert-error" role="alert">
+        <div class="tx-alert-msg">{{icon "error"}} {{.Error}}</div>
+        <pre class="tx-alert-detail mb-0">{{.SQL}}</pre>
+      </div>
+      {{else if .IsQuery}}
+      <div class="tx-result-meta">{{icon "success"}} <strong>{{len .Set.Rows}}</strong> row(s) · {{.Duration}} &nbsp; <code class="text-muted">{{truncate 140 .SQL}}</code></div>
+      {{template "result_grid" .Set}}
+      {{else}}
+      <div class="alert tx-alert tx-alert-success" role="alert">
+        <div class="tx-alert-msg">{{icon "success"}} <strong>{{.Affected}}</strong> row(s) affected · {{.Duration}}</div>
+        <pre class="tx-alert-detail mb-0">{{truncate 200 .SQL}}</pre>
+      </div>
+      {{end}}
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .History}}
+  <details class="mt-3">
+    <summary class="tx-section-title">{{icon "reload"}} Query history ({{len .History}})</summary>
+    <ul class="tx-history mt-2">
+      {{range .History}}<li><button type="button" class="tx-history-item" data-sql="{{.}}" x-on:click="useHistory" title="Load into the editor"><code>{{truncate 180 .}}</code></button></li>{{end}}
+    </ul>
+  </details>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

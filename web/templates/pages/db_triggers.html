@@ -1,0 +1,56 @@
+{{define "content" -}}
+{{with .Body}}{{$body := .}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "triggers"}} Triggers{{if .Scope.Table}} · {{.Scope.Table}}{{else}} · {{.Scope.DB}}{{if .Scope.Schema}}.{{.Scope.Schema}}{{end}}{{end}}</h2>
+  {{/* CanEdit, not CanManage: writing a trigger body needs allow_console as
+       well as allow_ddl, while dropping one needs only allow_ddl. */}}
+  {{if .CanEdit}}
+  <div class="d-flex gap-2 mb-3">
+    <a href="{{.NewURL}}" hx-get="{{.NewURL}}" hx-push-url="true" class="btn btn-tx btn-sm">{{icon "new"}} New trigger</a>
+  </div>
+  {{end}}
+  {{if .Triggers}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr>
+        <th scope="col">Name</th><th scope="col">Table</th>
+        <th scope="col">Timing</th><th scope="col">Event</th>
+        {{if .CanManage}}<th scope="col">Action</th>{{end}}
+      </tr></thead>
+      {{/* See db_routines.html for why each object gets its own <tbody>. The
+           truncated Definition column is gone: the panel below shows the whole
+           statement instead of its first 80 characters. */}}
+      {{range .Triggers}}
+      <tbody>
+        <tr>
+          <td class="tx-tbl-name">{{.Name}}</td>
+          <td>{{.Table}}</td>
+          <td>{{default .Timing "—"}}</td>
+          <td>{{default .Event "—"}}</td>
+          {{if $body.CanManage}}
+          <td class="d-flex gap-2">
+            {{if $body.CanEdit}}
+            <a href="{{.EditURL}}" hx-get="{{.EditURL}}" hx-push-url="true"
+               class="btn btn-link btn-sm p-0" title="Edit trigger" aria-label="Edit trigger {{.Name}}">{{icon "edit"}}</a>
+            {{end}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $body.PostURL "Action" "drop"
+              "Fields" (dict "name" .Name "i" .Index)
+              "Confirm" (printf `Drop trigger "%s" on "%s"? This cannot be undone.` .Name .Table)
+              "Title" "Drop trigger"
+              "Class" "d-inline" "ButtonClass" "btn btn-link btn-sm tx-danger p-0")}}
+          </td>
+          {{end}}
+        </tr>
+        <tr class="tx-defn-row">
+          <td colspan="{{if $body.CanManage}}5{{else}}4{{end}}">{{template "definition_toggle" (dict "URL" .DefURL)}}</td>
+        </tr>
+      </tbody>
+      {{end}}
+    </table>
+  </div>
+  {{else if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>
+  {{else}}{{template "empty_state" .Empty}}{{end}}
+</div>
+{{end}}
+{{- end}}

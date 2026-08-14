@@ -1,0 +1,24 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "warning"}} Confirm</h2>
+  {{/* The interstitial the server renders when a destructive POST arrives
+       without a confirmation. It re-posts the original fields verbatim, so the
+       second submission is identical to the first plus the confirmation — the
+       handler re-validates everything either way. */}}
+  <div class="card tx-card tx-maxw-lg">
+    <div class="card-body">
+      <p class="mb-3">{{.Prompt}}</p>
+      <p class="text-muted small">This cannot be undone.</p>
+      <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="d-inline">
+        {{template "csrf" $.CSRF}}
+        {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+        {{end}}<input type="hidden" name="{{.ConfirmName}}" value="1">
+        <button type="submit" class="btn btn-sm btn-tx-danger">{{icon "drop"}} {{default .ActionLabel "Confirm"}}</button>
+      </form>
+      <a href="{{.CancelURL}}" hx-get="{{.CancelURL}}" hx-push-url="true" class="btn btn-sm btn-outline-secondary ms-2">Cancel</a>
+    </div>
+  </div>
+</div>
+{{end}}
+{{- end}}

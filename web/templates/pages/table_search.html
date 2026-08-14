@@ -1,0 +1,44 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "search"}} Search · {{.Scope.Table}}</h2>
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}">
+    {{template "csrf" $.CSRF}}
+    <div class="table-responsive">
+    <table class="tx-edit-table">
+      <thead><tr><th scope="col">Column</th><th scope="col">Operator</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        {{range .Columns}}
+        {{$op := .Op}}
+        <tr>
+          <td class="tx-tbl-name">{{.Column.Name}} <span class="tx-col-type">{{.Column.DataType}}</span></td>
+          <td>
+            <select name="op_{{.Column.Name}}" class="form-select form-select-sm" aria-label="Operator for {{.Column.Name}}">
+              {{range $o := (list "=" "!=" "<" "<=" ">" ">=" "LIKE" "NOT LIKE")}}<option{{if eq $o $op}} selected{{end}}>{{$o}}</option>{{end}}
+            </select>
+          </td>
+          <td><input type="text" name="val_{{.Column.Name}}" value="{{.Value}}" class="form-control form-control-sm" autocomplete="off" aria-label="Value for {{.Column.Name}}"></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    </div>
+    <div class="tx-sql-actions">
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "search"}} Search</button>
+      <span class="text-muted small">LIKE matches the literal value; % and _ are escaped, not treated as wildcards.</span>
+    </div>
+  </form>
+
+  {{if .Ran}}
+  <div class="mt-3">
+    {{if .Error}}
+    <div class="alert tx-alert tx-alert-error"><div class="tx-alert-msg">{{icon "error"}} {{.Error}}</div></div>
+    {{else if .Result}}
+    <div class="tx-result-meta">{{icon "success"}} {{len .Result.Rows}} matching row(s)</div>
+    {{template "result_grid" .Result}}
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

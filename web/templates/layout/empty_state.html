@@ -1,0 +1,8 @@
+{{/* Shared empty-state info alert. Dot is the message string — the same
+     wrapper used to be copy-pasted across nine list pages. The {{with .}}
+     guard suppresses the box entirely for an EMPTY message: a caller that
+     reached this with "" (e.g. db_privileges when .Error is set and there are
+     no grants) would otherwise render an alert holding only the info icon. */}}
+{{define "empty_state" -}}
+{{with .}}<div class="alert tx-alert tx-alert-info"><div class="tx-alert-msg">{{icon "info"}} {{.}}</div></div>{{end}}
+{{- end}}

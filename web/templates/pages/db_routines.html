@@ -1,0 +1,64 @@
+{{define "content" -}}
+{{with .Body}}{{$body := .}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "routines"}} Routines · {{.Scope.DB}}{{if .Scope.Schema}}.{{.Scope.Schema}}{{end}}</h2>
+  {{/* CanEdit, not CanManage: writing a routine body needs allow_console as
+       well as allow_ddl, while dropping one needs only allow_ddl. */}}
+  {{if .CanEdit}}
+  <div class="d-flex gap-2 mb-3">
+    <a href="{{.NewProcedureURL}}" hx-get="{{.NewProcedureURL}}" hx-push-url="true" class="btn btn-tx btn-sm">{{icon "new"}} New procedure</a>
+    <a href="{{.NewURL}}" hx-get="{{.NewURL}}" hx-push-url="true" class="btn btn-tx btn-sm">{{icon "new"}} New function</a>
+  </div>
+  {{end}}
+  {{if .Routines}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr>
+        <th scope="col">Name</th><th scope="col">Type</th><th scope="col">Returns</th>
+        <th scope="col">Language</th><th scope="col">Comment</th>
+        {{if .ShowActions}}<th scope="col">Action</th>{{end}}
+      </tr></thead>
+      {{/* One <tbody> per routine so its definition row stays attached to it,
+           and so table-striped — which stripes odd rows WITHIN each tbody —
+           shades every routine row and leaves every definition row plain. */}}
+      {{range .Routines}}
+      <tbody>
+        <tr>
+          <td class="tx-tbl-name">{{.Name}}</td>
+          <td>{{.Type}}</td>
+          <td class="tx-col-type">{{default .ReturnType "—"}}</td>
+          <td class="text-muted">{{default .Language "—"}}</td>
+          <td class="text-muted">{{truncate 60 .Comment}}</td>
+          {{if $body.ShowActions}}
+          <td class="d-flex gap-2">
+            {{if $body.CanEdit}}
+            <a href="{{.EditURL}}" hx-get="{{.EditURL}}" hx-push-url="true"
+               class="btn btn-link btn-sm p-0" title="Edit {{lower .Type}}" aria-label="Edit {{lower .Type}} {{.Name}}">{{icon "edit"}}</a>
+            {{end}}
+            {{if .PrivURL}}
+            <a href="{{.PrivURL}}" hx-get="{{.PrivURL}}" hx-push-url="true"
+               class="btn btn-link btn-sm p-0" title="Privileges" aria-label="Privileges for {{.Name}}">{{icon "privileges"}}</a>
+            {{end}}
+            {{if $body.CanManage}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $body.PostURL "Action" "drop"
+              "Fields" (dict "name" .Name "i" .Index)
+              "Confirm" (printf `Drop %s "%s"? This cannot be undone.` (lower .Type) .Name)
+              "Title" (printf "Drop %s" (lower .Type))
+              "Class" "d-inline" "ButtonClass" "btn btn-link btn-sm tx-danger p-0")}}
+            {{end}}
+          </td>
+          {{end}}
+        </tr>
+        <tr class="tx-defn-row">
+          <td colspan="{{if $body.ShowActions}}6{{else}}5{{end}}">{{template "definition_toggle" (dict "URL" .DefURL)}}</td>
+        </tr>
+      </tbody>
+      {{end}}
+    </table>
+  </div>
+  {{else if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>
+  {{else}}{{template "empty_state" .Empty}}{{end}}
+</div>
+{{end}}
+{{- end}}

@@ -1,0 +1,57 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "database"}} Databases</h2>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead>
+        <tr>
+          <th scope="col">Database</th>
+          {{if not .HasSchemas}}<th scope="col" class="text-end">Tables</th>{{end}}
+          <th scope="col">Collation</th>
+          <th scope="col" class="text-end">Size</th>
+          <th scope="col" class="text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Databases}}
+        <tr{{if .IsSystem}} class="tx-system-row"{{end}}>
+          <td class="tx-tbl-name">{{icon "database"}} <a href="{{.StructureURL}}" hx-get="{{.StructureURL}}" hx-push-url="true">{{.Name}}</a></td>
+          {{if not $.Body.HasSchemas}}<td class="text-end">{{if ge .TableCount 0}}{{.TableCount}}{{else}}—{{end}}</td>{{end}}
+          <td class="text-muted">{{default .Collation "—"}}</td>
+          <td class="text-end">{{humanBytes .Size}}</td>
+          <td class="text-center tx-act">
+            <a class="tx-action" href="{{.StructureURL}}" hx-get="{{.StructureURL}}" hx-push-url="true" title="Structure" aria-label="Structure">{{icon "structure"}}</a>
+            <a class="tx-action" href="{{.OpsURL}}" hx-get="{{.OpsURL}}" hx-push-url="true" title="Operations" aria-label="Operations">{{icon "operations"}}</a>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="{{if $.Body.HasSchemas}}4{{else}}5{{end}}" class="text-muted">No databases.</td></tr>
+        {{end}}
+      </tbody>
+      {{if .Databases}}
+      <tfoot>
+        <tr class="tx-totals">
+          <td><strong>{{len .Databases}}</strong> database(s)</td>
+          {{if not .HasSchemas}}<td></td>{{end}}
+          <td></td>
+          <td class="text-end">{{if .HasSize}}{{humanBytes .TotalSize}}{{else}}—{{end}}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {{end}}
+    </table>
+  </div>
+
+  {{if .CanManageDB}}
+  <form method="post" action="/server" hx-post="/server" class="d-flex gap-2 mt-3 align-items-center">
+    {{template "csrf" $.CSRF}}
+    <input type="hidden" name="action" value="create_db">
+    <input type="text" name="db_name" class="form-control form-control-sm tx-maxw-sm" placeholder="New database name" required aria-label="New database name">
+    {{template "collation_select" (list .Collations "tx-maxw-sm")}}
+    <button type="submit" class="btn btn-tx btn-sm">{{icon "database"}} Create database</button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

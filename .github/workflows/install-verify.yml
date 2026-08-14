@@ -1,0 +1,272 @@
+name: Install verify
+
+# A correlation marker in the run title (populates displayTitle, which the
+# dispatcher matches on — NOT `name`, which is this workflow's name and identical
+# for every run). Empty for a direct/release-triggered run.
+run-name: >-
+  Install verify${{ inputs.source_run_id && format(' [source-run:{0}]', inputs.source_run_id) || '' }}
+
+# The REAL public install paths, run against a REAL published release — the
+# exact commands the README advertises, not a simulation of them. CI's
+# install-test job proves the scripts against a hermetic fake release before
+# anything ships; this workflow proves the published artifacts, the release
+# URLs, the script hosting (including the Pages MIME behavior that decides
+# whether `irm | iex` is advertisable), the cosign/attestation commands the
+# docs print, and the .deb/.rpm packages as a user would install them.
+#
+# release.yml dispatches this workflow as its final step, once every asset and
+# the container image exist. The `release: published` trigger below is NOT what
+# carries our own releases: GitHub deliberately refuses to start a workflow from
+# an event that the built-in GITHUB_TOKEN produced, and release.yml creates the
+# release with exactly that token. It is kept for a release published by hand
+# through the web UI, which does emit a triggering event.
+#
+# Dispatchable directly too: pass a version to re-verify a specific release (an
+# rc, typically), or none to exercise true latest-resolution.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag to verify (vX.Y.Z or vX.Y.Z-rc.N); empty = latest'
+        required: false
+        default: ''
+      base:
+        description: 'Where the install scripts are served from (e.g. https://tablex.dev)'
+        required: false
+        default: ''
+      source_run_id:
+        description: 'The release run that dispatched this, for correlation (release.yml sets it; leave empty otherwise)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  host-preflight:
+    # Fail FAST if the script host cannot serve the three installers, so the
+    # release-bound one-liner jobs below do not each rediscover a host outage.
+    # A host being down is pages.yml's problem, not an install regression — the
+    # dispatcher's failure classifier never demotes a release for it, and this
+    # job is what lets the common case fail once instead of across the matrix.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The script host serves install.sh / install.ps1 / install.cmd
+        run: |
+          base="${{ inputs.base }}"
+          [ -n "$base" ] || base="https://raw.githubusercontent.com/${{ github.repository }}/master"
+          echo "preflighting $base"
+          for f in install.sh install.ps1 install.cmd; do
+            ct=$(curl -fsSL -o "/tmp/$f" -w '%{content_type}' "$base/$f") || {
+              echo "::error::$base/$f is not reachable"; exit 1; }
+            test -s "/tmp/$f" || { echo "::error::$base/$f served an empty body"; exit 1; }
+            # A 404/error page is served as text/html; the scripts are not. This
+            # is a sanity gate, not a full MIME check — the edition-specific quirk
+            # that makes irm return bytes surfaces only in the real irm | iex.
+            case "$ct" in
+              text/html*) echo "::error::$base/$f served HTML ($ct) — likely a 404/error page, not the script"; exit 1 ;;
+            esac
+            echo "  $f: OK ($ct)"
+          done
+  unix-oneliner:
+    needs: host-preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      # No checkout on purpose: a user's machine has no checkout either. The
+      # script comes from the public URL, the artifacts from the release.
+      - name: curl | sh one-liner
+        env:
+          TABLEX_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          # gh authenticated so install.sh's build-provenance branch actually
+          # runs — it silently SKIPS when gh is not logged in, and we assert
+          # below that it verified rather than skipped.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base="${{ inputs.base }}"
+          [ -n "$base" ] || base="https://raw.githubusercontent.com/${{ github.repository }}/master"
+          if ! out=$(curl -fsSL "$base/install.sh" | sh 2>&1); then
+            printf '%s\n' "$out"
+            echo "::error::install.sh failed"; exit 1
+          fi
+          printf '%s\n' "$out"
+          got=$("$HOME/.local/bin/tablex" -version)
+          echo "installed: $got"
+          case "$got" in
+            "tablex v"*) ;;
+            *) echo "::error::unexpected version output '$got'"; exit 1 ;;
+          esac
+          if [ -n "${TABLEX_VERSION:-}" ] && [ "$got" != "tablex ${TABLEX_VERSION}" ]; then
+            echo "::error::got '$got', wanted 'tablex ${TABLEX_VERSION}'"; exit 1
+          fi
+          # With gh authenticated the script MUST have verified provenance, not
+          # skipped it — otherwise the one-liner's attestation path is untested.
+          case "$out" in
+            *"attestation OK"*) ;;
+            *) echo "::error::install.sh did not verify the build-provenance attestation (expected 'attestation OK') — is gh authenticated on the runner?"; exit 1 ;;
+          esac
+
+  windows-oneliner:
+    needs: host-preflight
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: irm | iex under both editions, then the cmd bootstrap
+        shell: pwsh
+        env:
+          TABLEX_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          # gh authenticated so install.ps1's build-provenance branch runs (it
+          # silently skips when gh is not logged in); asserted after the 5.1 run.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $base = '${{ inputs.base }}'
+          if (-not $base) { $base = 'https://raw.githubusercontent.com/${{ github.repository }}/master' }
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\TableX\tablex.exe'
+
+          function Assert-Version {
+            $got = & $exe -version
+            Write-Host "installed: $got"
+            if ($got -notlike 'tablex v*') { throw "unexpected version output '$got'" }
+            if ($env:TABLEX_VERSION -and $got -ne "tablex $env:TABLEX_VERSION") {
+              throw "got '$got', wanted 'tablex $env:TABLEX_VERSION'"
+            }
+          }
+
+          # Windows PowerShell 5.1 — the edition a stock Windows box runs. Capture
+          # every stream (*>&1) so the script's provenance line is asserted below.
+          $out = powershell -NoProfile -Command "irm $base/install.ps1 | iex" *>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw 'the 5.1 one-liner failed' }
+          Assert-Version
+          # gh is authenticated, so the script MUST have verified provenance
+          # rather than skipping it — otherwise the attestation path is untested.
+          if ($out -notmatch 'attestation OK') {
+            throw "install.ps1 did not verify the build-provenance attestation (expected 'attestation OK') — is gh authenticated on the runner?"
+          }
+
+          # PowerShell 7. If Pages ever serves the script with a MIME type
+          # that makes irm return bytes on one edition, THIS is the step that
+          # catches it before the README advertises the one-liner.
+          pwsh -NoProfile -Command "irm $base/install.ps1 | iex"
+          if ($LASTEXITCODE -ne 0) { throw 'the 7.x one-liner failed' }
+          Assert-Version
+
+          # The cmd.exe bootstrap, fetching install.ps1 from the same base.
+          $env:TABLEX_PS1_URL = "$base/install.ps1"
+          Invoke-WebRequest -UseBasicParsing "$base/install.cmd" -OutFile "$env:RUNNER_TEMP\install.cmd"
+          cmd /c "$env:RUNNER_TEMP\install.cmd"
+          if ($LASTEXITCODE -ne 0) { throw 'install.cmd failed' }
+          Assert-Version
+
+  verify-supply-chain:
+    # The verification commands SECURITY.md and the README print, run
+    # verbatim. If either fails here, the docs are advertising a broken
+    # ritual and the release should not be announced.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COSIGN_VERSION: v2.4.3
+    steps:
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: Download every published asset
+        run: |
+          tag="${{ inputs.version || github.event.release.tag_name }}"
+          if [ -n "$tag" ]; then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release download --repo "$GITHUB_REPOSITORY"
+          fi
+          ls -l
+
+      # Every name in SHA256SUMS must exist under that name as a published
+      # asset. GitHub rewrites characters outside [A-Za-z0-9._-] on upload, so
+      # a checksum file naming an artifact the release does not actually serve
+      # verifies nothing — v1.0.0-rc.1 shipped exactly that, its packages
+      # renamed from `1.0.0~rc.1` to `1.0.0.rc.1` in flight. No
+      # --ignore-missing: a missing file IS the failure being tested for.
+      - name: Checksums cover every asset, under the names GitHub serves
+        run: sha256sum -c SHA256SUMS
+      - name: cosign verify-blob (the documented command)
+        run: |
+          go install "github.com/sigstore/cosign/v2/cmd/cosign@${COSIGN_VERSION}"
+          # Derived from $GITHUB_REPOSITORY, like the attestation check below.
+          # This is the one place in the workflow that used to hardcode the
+          # owner/name, so a fork or a rename verified the ORIGINAL identity and
+          # still went green.
+          cosign verify-blob \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@.*" \
+            --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+            SHA256SUMS
+      - name: gh attestation verify (the documented command)
+        run: |
+          gh attestation verify SHA256SUMS --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+
+  verify-packages:
+    # The .deb the way dpkg installs it, the .rpm the way rpm installs it
+    # (inside a Fedora container — the Ubuntu runner has no rpm database).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download packages
+        run: |
+          tag="${{ inputs.version || github.event.release.tag_name }}"
+          if [ -n "$tag" ]; then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern '*amd64.deb' --pattern '*x86_64.rpm'
+          else
+            gh release download --repo "$GITHUB_REPOSITORY" \
+              --pattern '*amd64.deb' --pattern '*x86_64.rpm'
+          fi
+          echo "tag=$tag" >> "$GITHUB_ENV"
+          ls -l
+      - name: Pull the Fedora image
+        # Hoisted out of the .rpm assertion below so a Docker Hub rate-limit is a
+        # DISTINCT, non-allowlisted failure — not the first line of the step the
+        # release-demotion classifier is allowed to trust.
+        run: docker pull fedora:latest
+      # STABLE NAME — the release-demotion allowlist matches this exact
+      # (job, step) pair, so renaming it there and here must move together.
+      - name: The .deb installs and runs
+        run: |
+          sudo dpkg -i tablex_*_amd64.deb
+          got=$(tablex -version)
+          echo "deb: $got"
+          if [ -n "$tag" ] && [ "$got" != "tablex ${tag}" ]; then
+            echo "::error::deb reports '$got', wanted 'tablex ${tag}'"; exit 1
+          fi
+          test -s /usr/share/doc/tablex/THIRD-PARTY-NOTICES
+          test -s /usr/share/doc/tablex/tablex.service.example
+      - name: Remove the .deb
+        # Own step, if: always() — a cleanup failure must not fail the assertion
+        # above (which the classifier trusts) after every check has passed.
+        if: always()
+        run: sudo dpkg -r tablex || true
+      # STABLE NAME — allowlisted; the Docker pull is hoisted above so this step's
+      # only failure modes are a genuine install/version/doc mismatch.
+      - name: The .rpm installs and runs (fedora container)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work fedora:latest bash -ec '
+            rpm -i tablex-*x86_64.rpm
+            got=$(tablex -version)
+            echo "rpm: $got"
+            test -s /usr/share/doc/tablex/THIRD-PARTY-NOTICES
+            printf "%s\n" "$got" > /work/rpm-version.txt
+          '
+          got=$(cat rpm-version.txt)
+          if [ -n "$tag" ] && [ "$got" != "tablex ${tag}" ]; then
+            echo "::error::rpm reports '$got', wanted 'tablex ${tag}'"; exit 1
+          fi

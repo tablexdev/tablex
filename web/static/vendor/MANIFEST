@@ -1,0 +1,78 @@
+# Vendored front-end asset manifest
+#
+# TableX vendors its front-end libraries (no build step; each is embedded into
+# the single binary via go:embed). This file records the provenance and an
+# integrity baseline for every vendored bundle so a reviewer can audit what ships
+# and a maintainer can re-verify on every bump.
+#
+# Each SHA-256 below is of the exact vendored copy in this repository (compute
+# with `sha256sum <file>`). On any version bump you MUST:
+#   1. download the file from the upstream release / CDN URL for the new version,
+#   2. confirm its SHA-256 matches the CDN's published Subresource-Integrity hash
+#      (or the release artifact), and
+#   3. update the version, URL, and SHA-256 rows here in the same commit.
+#
+# Licenses are all permissive and compatible with TableX's MIT distribution
+# (MPL-2.0 applies file-level to the go-sql-driver/mysql Go dependency only —
+# see THIRD-PARTY-NOTICES).
+# Versions were cross-checked against the npm registry (htmx.org@2.0.10 → 0BSD,
+# @alpinejs/csp@3.15.12 → MIT) and the projects' GitHub releases (Bootstrap
+# v5.3.8, CodeMirror v5.65.21 → MIT).
+
+[bootstrap/bootstrap.min.css]
+component = Bootstrap (CSS only; the JS bundle is not vendored)
+version   = 5.3.8
+license   = MIT
+source    = https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css
+sha256    = d85327d99c7a3ee1f9b5d0500d1370acea3ad2db39c163c2f51f232baedbdede
+
+[htmx/htmx.min.js]
+component = htmx
+version   = 2.0.10
+license   = 0BSD
+source    = https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js
+sha256    = 71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de
+
+[alpine/alpine-csp.min.js]
+component = Alpine.js (CSP build — required by the strict script-src CSP)
+version   = 3.15.12
+license   = MIT
+source    = https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.15.12/dist/cdn.min.js
+sha256    = 566167134bb2347110904e2ced6e816d2e8d837200c158f98b72372b3bb0b9a6
+
+# CodeMirror 5 status (checked 2026-07): 5.65.21 is the latest 5.x. The line is
+# in LEGACY maintenance — the GitHub mirror (codemirror/codemirror5) was
+# archived 2026-04-16 and development moved upstream to code.haverbeke.berlin;
+# the project itself calls CM5 "legacy". The CM5 choice is deliberate (single
+# file, no build step, CSP-friendly); expect patches to be rare, not "none".
+# The three CodeMirror filenames all end in .min for consistency with the other
+# bundles, but only the core is actually minified. The `source` row of each is
+# the path the vendored BYTES came from, which is what step 1 above re-downloads
+# — for the stylesheet and the SQL mode that is the plain upstream file, and
+# pointing those rows at a .min URL would make the next re-verification report a
+# mismatch against a file nobody changed.
+#
+# The core is minified by jsDelivr ON DEMAND ("Do NOT use SRI with dynamically
+# generated files", says its own banner), so even its consistent row can fail
+# step 2 after a re-minification with no version change. Compare against the
+# original lib/codemirror.js if that happens, rather than assuming tampering.
+[codemirror/codemirror.min.js]
+component = CodeMirror 5 (editor core; jsDelivr-minified lib/codemirror.js)
+version   = 5.65.21
+license   = MIT
+source    = https://cdn.jsdelivr.net/npm/codemirror@5.65.21/lib/codemirror.min.js
+sha256    = 6b1388af5a30e6dad949ed0264a43487f5e7a6126c107e8f127798cbf0d02b9c
+
+[codemirror/codemirror.min.css]
+component = CodeMirror 5 (editor stylesheet; lib/codemirror.css, NOT minified)
+version   = 5.65.21
+license   = MIT
+source    = https://cdn.jsdelivr.net/npm/codemirror@5.65.21/lib/codemirror.css
+sha256    = eb494ea972d2661ef86f7f6ac656dd6786d721e49c9c1b46e1eb967e4b6f9bf3
+
+[codemirror/sql.min.js]
+component = CodeMirror 5 SQL mode (mode/sql/sql.js, NOT minified)
+version   = 5.65.21
+license   = MIT
+source    = https://cdn.jsdelivr.net/npm/codemirror@5.65.21/mode/sql/sql.js
+sha256    = d5edb6bd39caa6155cab6bcdeb380a29229264a8a26e5fddd21ca12f0ebf359f

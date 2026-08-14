@@ -1,0 +1,469 @@
+# TableX configuration (TOML). All fields are optional — TableX runs with
+# sensible defaults and ad-hoc login out of the box. Pass with --config tablex.toml
+# or set TABLEX_CONFIG. Flags and TABLEX_* env vars override these values.
+
+# HTTP listen address.
+listen = ":8080"
+
+# Direct TLS (otherwise run behind a TLS-terminating reverse proxy).
+# tls_cert = "/etc/tablex/cert.pem"
+# tls_key  = "/etc/tablex/key.pem"
+
+# Row-count ceiling for Browse/Structure (with a separate, stricter role for
+# views). Relations whose engine statistics estimate more rows
+# than this show the estimate; those with no usable estimate at all — a VIEW on
+# every engine — are counted only up to this many and reported as a lower bound.
+# Either way the total is marked ≈ and offers a "count exact" link, which is the
+# one path that may run an unbounded COUNT(*). 0 always counts exactly.
+# Env: TABLEX_MAX_EXACT_COUNT.
+max_exact_count = 50000
+
+# Process-wide cap on cached per-database connection pools. When the cap is hit,
+# a session's least-recently-used idle pool is closed to make room. 0 removes
+# the cap. Env: TABLEX_POOL_CAP.
+pool_cap = 32
+
+# Size of each connection pool. pool_cap × pool_max_conns bounds TableX's
+# outbound connections to one server, which is what has to stay clear of that
+# server's own max_connections.
+# Env: TABLEX_POOL_MAX_CONNS / TABLEX_POOL_IDLE_CONNS.
+pool_max_conns  = 8
+pool_idle_conns = 4
+
+# Budget for a single GENERATED read statement (introspection, browse, count,
+# estimate), so a few slow reads cannot tie up a whole pool until the client
+# disconnects. Deliberately NOT applied to the SQL console, export streaming,
+# imports, or any generated write. Env: TABLEX_READ_STMT_TIMEOUT.
+read_stmt_timeout = "60s"
+
+# How many requests may simultaneously hold a PRIVATE database connection: a
+# streaming export, a SQL console script, or a SQL import. Those sit outside
+# pool_cap by design, so without this nothing bounds them and enough parallel
+# exports could exhaust the database's max_connections. Over the cap a request
+# is refused with 503 + Retry-After rather than queued. 0 removes the cap.
+# Env: TABLEX_MAX_CONCURRENT_DB_OPS.
+max_concurrent_db_ops = 16
+
+# How many import UPLOADS may be in flight at once. Separate from
+# max_concurrent_db_ops, and lower on purpose: an import slot is held across the
+# whole upload — the multipart parse and its temp-file spill happen in the CSRF
+# middleware, before any handler runs — while a database-op slot is held only
+# across database work. Holding a database connection for the length of a slow
+# upload would be its own denial of service. Over the cap a request is refused
+# with 503 + Retry-After rather than queued. 0 or less removes the cap.
+# Env: TABLEX_MAX_CONCURRENT_IMPORTS.
+max_concurrent_imports = 4
+
+# How many statements ONE script may lex into. The splitter materializes every
+# statement of a script BEFORE the first one runs, so a large upload of tiny
+# statements is a slice of tens of millions of entries and well over a gigabyte
+# — and Go cannot recover from an allocation failure the way it recovers from a
+# panic. Distinct from session_query_budget, which bounds a session's statements
+# over TIME; this bounds one script's footprint in memory before anything
+# executes.
+#
+# An over-limit script is refused WHOLE, never truncated: running a prefix of a
+# restore commits half of it. Generous by design — a real restore can carry
+# hundreds of thousands of INSERTs, and refusing one of those would be the bug.
+# 0 or less removes the cap.
+# Env: TABLEX_MAX_SCRIPT_STATEMENTS.
+max_script_statements = 500000
+
+# How many statements ONE session may submit per window. max_concurrent_db_ops
+# bounds how much work runs at once; this bounds how much a single logged-in user
+# may ask for over time, which is the dimension one person can otherwise
+# saturate alone.
+#
+# It charges the SQL a user WROTE — the console, EXPLAIN, and a SQL import — and
+# deliberately not the queries TableX generates for them: one page render costs
+# several introspection reads, so charging those would spend a browsing user's
+# budget on navigation, and they are already bounded by read_stmt_timeout and the
+# pool caps. Over the budget, the statement is refused with a message naming the
+# setting and a real wait; the statements before it still ran.
+#
+# The window is fixed, not sliding, so the honest worst case is two budgets'
+# worth across a window boundary. 0 removes the budget (the default: a
+# single-operator TableX has nobody to be fair to).
+# Env: TABLEX_SESSION_QUERY_BUDGET / TABLEX_SESSION_QUERY_WINDOW.
+session_query_budget = 0
+session_query_window = "1m"
+
+[session]
+cookie_name      = "tablex_session"
+idle_timeout     = "30m"
+absolute_timeout = "8h"
+
+[security]
+# When TLS is terminated at a reverse proxy (TableX speaks plain HTTP to it),
+# force Secure/__Host- cookies + HSTS anyway. Env: TABLEX_SECURE_COOKIES.
+# secure_cookies = true
+# Allow logging into arbitrary hosts typed at the login page. Default: true.
+# Set to false to require a predefined server below (safer for public deploys).
+allow_adhoc = true
+# Link-local/cloud-metadata targets are ALWAYS refused for ad-hoc logins. Set this
+# to also refuse loopback/private (RFC1918) hosts — leave false for local DB admin.
+block_private = false
+# Optional allow/deny lists for ad-hoc hosts.
+# host_allowlist = ["db1.internal", "db2.internal"]
+# host_denylist  = ["169.254.169.254"]
+# Login throttling per client IP and per username.
+login_rate_window = "1m"
+login_rate_max    = 10
+# How many SESSIONS one client IP may cause to be created per window. The login
+# throttle above cannot cover this: it short-circuits on safe methods, while an
+# anonymous GET to any route mints a session — and, with [storage] configured, a
+# durable ROW. 0 disables it, which is the default.
+#
+# OFF by default because it gates GETs too, unlike the login limiter: keyed on
+# the client IP, an under-sized value refuses the login PAGE to everyone behind
+# one NAT or corporate egress. Size it for the address population, and prefer
+# trusted_proxy_cidrs so the key is the real client.
+session_create_window = "1m"
+session_create_max    = 0
+# Failed attempts against ONE ACCOUNT NAME per window, across ALL source
+# addresses. Every key above starts with the client IP, so the throttle they give
+# is per-source: an attacker with an IPv6 /64 or a botnet gets login_rate_max
+# attempts EACH against the same account. This is the key that is not keyed on the
+# attacker's choice of address.
+#
+# Deliberately more permissive than login_rate_max, because it is SHARED: several
+# people behind different addresses may be typing the same account name, and one
+# of them mistyping must not lock out the rest. 0 disables it (with a warning).
+login_account_max = 50
+# Reverse proxies whose X-Forwarded-For entries are trusted when resolving the
+# client IP for rate limiting and logs (CIDRs or bare IPs; parsed right-to-left
+# skipping these hops). When empty, X-Forwarded-For is NEVER trusted — the bare
+# trusted_proxy boolean alone is ignored with a startup warning, since it would
+# mean trusting a client-supplied header. Env: TABLEX_TRUSTED_PROXY_CIDRS
+# (comma-separated).
+# trusted_proxy_cidrs = ["10.0.0.0/8", "172.17.0.1"]
+
+# --- Single sign-on (optional; off unless issuer is set) ----------------------
+#
+# An OpenID Connect provider IN FRONT OF the login form. It is deliberately NOT
+# "log in with SSO": TableX opens every database connection with the user's OWN
+# credentials, which is what makes the audit trail's account field the truthful
+# answer to whose privileges a statement ran under, and what lets the promise that
+# TableX never stores a credential stand. So passing the provider gets you to the
+# login form, and you still supply your own credentials there. The verified person
+# is recorded ALONGSIDE the database account in the audit trail.
+#
+# Half-configured refuses startup: a gate that silently does not engage is worse
+# than one that fails loudly. The issuer must be https (loopback excepted, for
+# testing) because the flow's security rests on TLS to the provider.
+#
+# Every field has a TABLEX_SSO_* environment override (lists comma-separated:
+# TABLEX_SSO_SCOPES, TABLEX_SSO_ALLOWED_EMAILS, TABLEX_SSO_ALLOWED_DOMAINS).
+#
+# [sso]
+# issuer        = "https://login.example.com"
+# client_id     = "tablex"
+# client_secret = "..."               # Env: TABLEX_SSO_CLIENT_SECRET
+# redirect_url  = "https://tablex.example.com/auth/sso/callback"
+# scopes        = ["openid", "profile", "email"]   # openid is added if omitted
+# # Narrow WHICH verified identities may reach the login form. Empty means anyone
+# # the provider vouches for, which is right only when the provider's own audience
+# # is already the set of people who should be here.
+# allowed_domains = ["example.com"]
+# allowed_emails  = ["contractor@elsewhere.example"]
+
+# Predefined servers appear on the login page so users only pick + authenticate.
+# Prefer leaving user/password empty (collected at login). Inline credentials are
+# only for trusted deployments — reference env/secrets where possible.
+
+# [[servers]]
+# name     = "Local MySQL"
+# engine   = "mysql"
+# host     = "127.0.0.1"
+# port     = 3306
+
+# sslmode: only "verify-ca", "verify-full" and "true" AUTHENTICATE the server.
+# "require" mandates TLS but verifies nothing (no CA chain, no hostname check) —
+# libpq parity, and TableX warns about it at startup; "prefer"/"allow" silently
+# fall back to plaintext. Use "verify-full" wherever a MITM is a concern.
+# [[servers]]
+# name     = "Analytics PG"
+# engine   = "postgres"
+# host     = "127.0.0.1"
+# port     = 5432
+# database = "analytics"
+# sslmode  = "verify-full"
+
+# [[servers]]
+# name = "App SQLite"
+# engine = "sqlite"
+# file   = "/var/lib/app/app.db"
+
+# ---------------------------------------------------------------------------
+# TableX's OWN metadata database (optional; off by default).
+#
+# Give TableX a database of its own and a session's IDENTITY becomes durable:
+# it survives a restart, and every replica behind a load balancer accepts the
+# same session cookie and CSRF token. Without this, a login form rendered by
+# one replica is rejected by another.
+#
+# What it does NOT do — and cannot — is share the CONNECTIONS. The password a
+# user types is never written here (docs/security.md §2), so an authenticated
+# session stays bound to the process that opened its pools; another replica
+# accepts the cookie, finds no pools, and shows the login page. One login
+# rebinds it. Sticky sessions avoid that extra login.
+#
+# This database holds live session ids, so it is as sensitive as the cookies it
+# stands in for: give TableX its own database and its own account. Supply the
+# password through TABLEX_STORAGE_PASSWORD rather than inline where you can.
+#
+# Every field except `params` has a TABLEX_STORAGE_* environment override —
+# params is a map, and no environment variable can express one.
+
+# How many rows the sessions table may hold. Over it a new session is refused a
+# durable row and runs process-local — exactly what happens when this database is
+# unreachable — and the reaper writes it once there is room.
+#
+# PER REPLICA: each enforces the cap against its own most recent count, so a
+# cluster may briefly hold roughly replicas x max_sessions rows. What converges
+# within a sweep (about a minute) is ADMISSION — every replica re-counts and
+# stops admitting. The excess ROWS do not: nothing trims the table to fit, so
+# they clear on the ordinary session clock (inactivity for idle_timeout plus the
+# sweep's touch lag, and no sooner than absolute_timeout for a session still in
+# use), and only on the next SUCCESSFUL sweep. 0 or less removes the cap.
+# Env: TABLEX_STORAGE_MAX_SESSIONS.
+#
+# Only meaningful together with an engine: a [storage] block holding just
+# max_sessions refuses startup like any other partly-configured block.
+# [storage]
+# max_sessions = 20000
+
+# The zero-setup form. TableX creates the file (0600) if it is missing, but not
+# the directory. A file cannot be shared between replicas — it makes sessions
+# survive a RESTART only, and startup says so.
+# [storage]
+# engine = "sqlite"
+# file   = "/var/lib/tablex/tablex.db"
+
+# The shared form, for more than one TableX. `database` is required for a
+# networked engine: TableX will not guess where to put its tables.
+# [storage]
+# engine   = "postgres"
+# host     = "127.0.0.1"
+# port     = 5432
+# database = "tablex"
+# user     = "tablex"
+# sslmode  = "verify-full"
+# table_prefix = "tablex_"     # default; letters, digits and underscores only
+
+# ---------------------------------------------------------------------------
+# Audit trail (optional; off by default).
+#
+# Distinct from the access log, which always goes to stderr and answers "what
+# HTTP traffic did this process serve". This answers "who changed my database":
+# the account the SERVER reports for the connection, the client address, the
+# object in dotted form (sales.orders), the outcome, and the request id that
+# ties it back to the access line.
+#
+# It is on when it names a destination — there is no separate `enabled` flag to
+# contradict them. A block that tunes the trail without giving it anywhere to
+# write refuses to start, since an operator who wrote those settings believes
+# auditing is on.
+#
+# No password, DSN, CSRF token or session id is ever recorded: nothing in the
+# trail can be replayed to gain access. The file is created 0600 all the same,
+# because it names accounts and addresses.
+#
+# The honest limit: a destination that cannot be written is reported at ERROR
+# and the request still proceeds. TableX does not refuse to serve when its audit
+# sink is unwritable — a full disk would otherwise be a total outage.
+
+# [audit]
+# file = "/var/log/tablex/audit.jsonl"   # JSON Lines; the DIRECTORY must exist
+# max_bytes = 67108864                   # rotate at 64 MiB, keeping ONE ".1".
+#                                        # A floor against filling a disk, not a
+#                                        # retention policy — point this at a path
+#                                        # your own rotation handles, or ship the
+#                                        # lines somewhere.
+# log = false                            # also emit through TableX's logger, and
+#                                        # so to stderr: the container log stream,
+#                                        # journald, or whatever already collects
+#                                        # it. This is how the trail reaches
+#                                        # syslog without TableX speaking syslog.
+# statements = false                     # record the SQL text of each statement,
+#                                        # not just that a request happened.
+#                                        # Statement text can carry row data.
+
+# ---------------------------------------------------------------------------
+# Metrics (optional; off by default).
+#
+# Exposes GET /metrics in the Prometheus text exposition format. No client
+# library is involved and no dependency is added — the format is a few lines of
+# text per series.
+#
+# It is ACCESS-CONTROLLED rather than public, which is why this block has three
+# keys instead of one: the numbers describe TableX's internals — how many
+# sessions exist, how much work is in flight, whether the audit trail is failing
+# to write — and none of that belongs to an anonymous caller. (/healthz stays a
+# bare "ok" for the same reason, so a container probe never needs a credential.)
+#
+# Enabling it with neither a token nor an address allowlist REFUSES TO START.
+# There is no safe default to pick on your behalf: "loopback only" would silently
+# break a Prometheus on another host, and "anyone" would publish the internals of
+# a database admin tool. When both are set, both must pass.
+#
+# The path is fixed at /metrics. A movable path is obscurity, not a control.
+
+# [metrics]
+# enabled = true
+# token = "..."                    # required as `Authorization: Bearer <token>`,
+#                                  # compared in constant time. A token in the
+#                                  # query string is NOT accepted — it would be
+#                                  # written to the access log on every scrape.
+#                                  # Over plain HTTP it crosses the wire in
+#                                  # cleartext, which startup warns about.
+# allow_cidrs = ["10.0.0.0/8"]     # CIDRs or bare IPs permitted to scrape. The
+#                                  # address compared is the one TableX resolves
+#                                  # everywhere else, so X-Forwarded-For counts
+#                                  # only from a configured trusted proxy.
+#
+# What is exposed: build info; request counts by method and status CLASS (never
+# by path — that would grow a series per table a user visits); a latency
+# histogram; sessions held by this process; login results (ok / denied /
+# throttled); the capacity gauges and their refusal counters; and, only when the
+# relevant subsystem is configured, the audit trail's write failures and the
+# metadata database's reachability. A series for a feature that is switched off
+# is omitted rather than reported as zero, because a flat zero on a dashboard is
+# how an operator comes to believe a trail is being written when none is.
+#
+# The ones worth alarming on: tablex_audit_write_failures_total (the trail is
+# LOSING records), tablex_storage_degraded_total (sessions are not currently
+# durable), tablex_db_ops_refused_total, tablex_import_ops_refused_total,
+# tablex_storage_session_cap_refusals_total and
+# tablex_storage_session_marker_refusals_total (sessions are running
+# non-durable), tablex_query_budget_refused_total (work is being turned away),
+# and tablex_logins_total{result="denied"}.
+#
+# Env: TABLEX_METRICS_ENABLED, TABLEX_METRICS_TOKEN,
+#      TABLEX_METRICS_ALLOW_CIDRS (comma-separated).
+
+# ---------------------------------------------------------------------------
+# Restricted mode (optional; nothing restricted by default).
+#
+# Narrows what a logged-in user may do BELOW what their database grants already
+# allow. This is defence in depth and nothing more: the database's own
+# privileges remain the real boundary, and an operator who needs a user not to
+# be able to drop a table should also not grant them DROP.
+#
+# What it buys is the case grants cannot express — an operator who must use a
+# privileged account (a shared read-only console, a support login on a DBA
+# credential) and wants TableX itself to refuse the dangerous half.
+#
+# Enforced on the request, keyed on the route, inside the auth gate — never in
+# the templates. A hidden button is not a control, so every restriction here holds
+# against a URL typed by hand. Each route declares what it needs where it is
+# registered, and the table fails CLOSED: a state-changing request that resolves
+# to no entry is treated as needing DDL permission.
+#
+# The UI then REFLECTS the policy so it does not offer what it would refuse:
+# withheld tabs, withheld buttons, narrowed database listings, and a standing note
+# on every page saying what is withheld. That is a courtesy, not a control — both
+# are derived from these same settings, so they cannot disagree.
+
+# [restrict]
+# read_only = false        # refuse every state-changing request. The SQL console
+#                          # and SQL import go with it: TableX will not try to
+#                          # decide whether your SQL writes. Reads, browsing and
+#                          # exports are unaffected.
+# allow_console = true     # arbitrary SQL, under the user's own credentials.
+#                          # Turning it off leaves browse/edit/structure working.
+#                          # It closes every path whose reach TableX cannot
+#                          # describe: the SQL console, SQL import, the stored
+#                          # program editor (a routine/trigger/event body is
+#                          # unconstrained SQL) and a partial index's WHERE
+#                          # predicate. Dropping a stored program is ordinary
+#                          # DDL and stays under allow_ddl.
+# allow_ddl = true         # schema and access-control changes: create/drop
+#                          # database and schema, the structure editor, table
+#                          # operations, stored programs, accounts and grants.
+#                          # Row edits are NOT DDL and stay available, which is
+#                          # why this is separate from read_only.
+# database_allowlist = []  # if set, only these databases may be addressed. Every
+#                          # route naming another is refused, and every listing
+#                          # that offers one is narrowed — the sidebar, the
+#                          # Databases page, and the CONTENTS of a server-scope
+#                          # dump (whose route names no database, and which would
+#                          # otherwise hand over what the sidebar just hid).
+#                          # NOTE: while the console is enabled a user can still
+#                          # name any database their credentials reach IN A
+#                          # STATEMENT, and TableX does not parse SQL to stop
+#                          # them — startup warns about that combination. With
+#                          # allow_console = false it is a real confinement.
+#                          # NOTE: this scopes POST-AUTH navigation. It does not
+#                          # constrain which database an AD-HOC login connects
+#                          # to in the first place; a predefined server takes
+#                          # its database from config and ignores the posted
+#                          # field, so pair the allowlist with predefined
+#                          # servers if that matters.
+#
+# Env: TABLEX_READ_ONLY, TABLEX_ALLOW_CONSOLE, TABLEX_ALLOW_DDL,
+#      TABLEX_DATABASE_ALLOWLIST (comma-separated).
+
+# ---------------------------------------------------------------------------
+# Environment overrides — the canonical table.
+#
+# Every variable below overrides its config key when set. Lists are
+# comma-separated; a list variable holding only separators clears the
+# configured list. Deliberately WITHOUT an override: the predefined
+# [[servers]] blocks (structured data), storage.params (a map), and the
+# security tuning that shapes the login attack surface (host_allowlist,
+# host_denylist, login_rate_window, login_rate_max, login_account_max,
+# session_create_window, session_create_max) — those must not be loosenable
+# from a process environment.
+#
+#   TABLEX_CONFIG                    path of this file (loader input, not a key)
+#   TABLEX_LISTEN                    listen
+#   TABLEX_TLS_CERT                  tls_cert
+#   TABLEX_TLS_KEY                   tls_key
+#   TABLEX_MAX_EXACT_COUNT           max_exact_count
+#   TABLEX_POOL_CAP                  pool_cap
+#   TABLEX_POOL_MAX_CONNS            pool_max_conns
+#   TABLEX_POOL_IDLE_CONNS           pool_idle_conns
+#   TABLEX_READ_STMT_TIMEOUT         read_stmt_timeout
+#   TABLEX_MAX_CONCURRENT_DB_OPS     max_concurrent_db_ops
+#   TABLEX_MAX_CONCURRENT_IMPORTS    max_concurrent_imports
+#   TABLEX_MAX_SCRIPT_STATEMENTS     max_script_statements
+#   TABLEX_SESSION_QUERY_BUDGET      session_query_budget
+#   TABLEX_SESSION_QUERY_WINDOW      session_query_window
+#   TABLEX_COOKIE_NAME               session.cookie_name
+#   TABLEX_IDLE_TIMEOUT              session.idle_timeout
+#   TABLEX_ABSOLUTE_TIMEOUT          session.absolute_timeout
+#   TABLEX_ALLOW_ADHOC               security.allow_adhoc
+#   TABLEX_BLOCK_PRIVATE             security.block_private
+#   TABLEX_SECURE_COOKIES            security.secure_cookies
+#   TABLEX_TRUSTED_PROXY             security.trusted_proxy
+#   TABLEX_TRUSTED_PROXY_CIDRS       security.trusted_proxy_cidrs (list)
+#   TABLEX_SSO_ISSUER                sso.issuer
+#   TABLEX_SSO_CLIENT_ID             sso.client_id
+#   TABLEX_SSO_CLIENT_SECRET         sso.client_secret
+#   TABLEX_SSO_REDIRECT_URL          sso.redirect_url
+#   TABLEX_SSO_SCOPES                sso.scopes (list)
+#   TABLEX_SSO_ALLOWED_EMAILS        sso.allowed_emails (list)
+#   TABLEX_SSO_ALLOWED_DOMAINS       sso.allowed_domains (list)
+#   TABLEX_STORAGE_ENGINE            storage.engine
+#   TABLEX_STORAGE_HOST              storage.host
+#   TABLEX_STORAGE_PORT              storage.port
+#   TABLEX_STORAGE_SOCKET            storage.socket
+#   TABLEX_STORAGE_DATABASE          storage.database
+#   TABLEX_STORAGE_FILE              storage.file
+#   TABLEX_STORAGE_USER              storage.user
+#   TABLEX_STORAGE_PASSWORD          storage.password
+#   TABLEX_STORAGE_SSLMODE           storage.sslmode
+#   TABLEX_STORAGE_MAX_SESSIONS      storage.max_sessions
+#   TABLEX_STORAGE_TABLE_PREFIX      storage.table_prefix
+#   TABLEX_AUDIT_FILE                audit.file
+#   TABLEX_AUDIT_MAX_BYTES           audit.max_bytes
+#   TABLEX_AUDIT_LOG                 audit.log
+#   TABLEX_AUDIT_STATEMENTS          audit.statements
+#   TABLEX_READ_ONLY                 restrict.read_only
+#   TABLEX_ALLOW_CONSOLE             restrict.allow_console
+#   TABLEX_ALLOW_DDL                 restrict.allow_ddl
+#   TABLEX_DATABASE_ALLOWLIST        restrict.database_allowlist (list)
+#   TABLEX_METRICS_ENABLED           metrics.enabled
+#   TABLEX_METRICS_TOKEN             metrics.token
+#   TABLEX_METRICS_ALLOW_CIDRS       metrics.allow_cidrs (list)

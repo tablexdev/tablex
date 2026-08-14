@@ -1,0 +1,43 @@
+# nfpm configuration — release.yml builds the .deb and .rpm packages from this
+# one file, once per architecture:
+#
+#   cp staging/linux_${arch}/tablex staging/nfpm/tablex
+#   VERSION=v1.0.1 GOARCH=${arch} nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+#
+# Env-parameterized where nfpm expands env (version, arch); contents.src does
+# NOT expand, so the workflow copies the right binary to the fixed
+# staging/nfpm/tablex path before each invocation. version_schema: semver
+# strips the v and folds a pre-release into a tilde revision
+# (v1.0.0-rc.1 -> 1.0.0~rc.1), which sorts BEFORE 1.0.0 in both dpkg and rpm
+# ordering — an rc can never shadow the release.
+#
+# No systemd unit is installed on purpose: TableX is a database-administration
+# login page, and `apt install` must never auto-start one. The hardened example
+# unit ships as documentation instead (see tablex.service.example).
+name: tablex
+arch: ${GOARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: database
+priority: optional
+maintainer: TableX <info@tablex.dev>
+description: |
+  Single-binary web admin for MySQL, MariaDB, PostgreSQL and SQLite.
+  TableX brings the classic database-admin UI to all four engines in one
+  self-contained, pure-Go binary: no PHP, no Node, no runtime
+  dependencies. Run `tablex` and open http://localhost:8080.
+vendor: TableX
+homepage: https://tablex.dev
+license: MIT
+contents:
+  - src: staging/nfpm/tablex
+    dst: /usr/bin/tablex
+  - src: LICENSE
+    dst: /usr/share/doc/tablex/LICENSE
+  - src: THIRD-PARTY-NOTICES
+    dst: /usr/share/doc/tablex/THIRD-PARTY-NOTICES
+  - src: tablex.example.toml
+    dst: /usr/share/doc/tablex/tablex.example.toml
+  - src: packaging/tablex.service.example
+    dst: /usr/share/doc/tablex/tablex.service.example

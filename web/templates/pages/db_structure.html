@@ -1,0 +1,83 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  {{if .ShowSchemas}}
+  <h2 class="tx-h2">{{icon "schema"}} Schemas in “{{$sc.DB}}”</h2>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">Schema</th><th scope="col">Owner</th><th scope="col" class="text-center">Action</th></tr></thead>
+      <tbody>
+        {{range .Schemas}}
+        <tr{{if .IsSystem}} class="tx-system-row"{{end}}>
+          <td>{{icon "schema"}} <a href="{{.URL}}" hx-get="{{.URL}}" hx-push-url="true">{{.Name}}</a></td>
+          <td class="text-muted">{{default .Owner "—"}}</td>
+          <td class="text-center"><a class="tx-action" href="{{.URL}}" hx-get="{{.URL}}" hx-push-url="true">{{icon "structure"}} Structure</a></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3" class="text-muted">No schemas.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <h2 class="tx-h2">{{icon "database"}} Tables in “{{if $sc.Schema}}{{$sc.Schema}}{{else}}{{$sc.DB}}{{end}}”</h2>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead>
+        <tr>
+          <th scope="col">Table</th>
+          {{/* colgroup, not col: this one header covers all five action columns. */}}
+          <th scope="colgroup" class="text-center" colspan="5">Action</th>
+          <th scope="col" class="text-end">Rows</th>
+          <th scope="col">Type</th>
+          <th scope="col" class="text-end">Size</th>
+          <th scope="col">Comment</th>
+          <th scope="col">Creation</th>
+          <th scope="col">Update</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Tables}}
+        <tr>
+          <td class="tx-tbl-name">{{if .IsView}}{{icon "view"}}{{else}}{{icon "table"}}{{end}}
+            <a href="{{.BrowseURL}}" hx-get="{{.BrowseURL}}" hx-push-url="true">{{.Name}}</a></td>
+          <td class="text-center tx-act"><a href="{{.BrowseURL}}" hx-get="{{.BrowseURL}}" hx-push-url="true" title="Browse" aria-label="Browse {{.Name}}">{{icon "browse"}}</a></td>
+          <td class="text-center tx-act"><a href="{{.StructureURL}}" hx-get="{{.StructureURL}}" hx-push-url="true" title="Structure" aria-label="Structure of {{.Name}}">{{icon "structure"}}</a></td>
+          <td class="text-center tx-act"><a href="{{.SearchURL}}" hx-get="{{.SearchURL}}" hx-push-url="true" title="Search" aria-label="Search {{.Name}}">{{icon "search"}}</a></td>
+          <td class="text-center tx-act">{{if and (not .IsView) $.Allow.Write}}<a href="{{.InsertURL}}" hx-get="{{.InsertURL}}" hx-push-url="true" title="Insert" aria-label="Insert into {{.Name}}">{{icon "insert"}}</a>{{end}}</td>
+          <td class="text-center tx-act">{{if $.Allow.DDL}}<a href="{{.DropURL}}" hx-get="{{.DropURL}}" hx-push-url="true" title="Operations" aria-label="Operations for {{.Name}}">{{icon "operations"}}</a>{{end}}</td>
+          <td class="text-end">{{humanInt .Rows}}</td>
+          <td>{{if .IsView}}View{{else}}{{default .Engine "Table"}}{{end}}</td>
+          <td class="text-end">{{humanBytes .Size}}</td>
+          <td class="text-muted">{{truncate 40 .Comment}}</td>
+          <td class="text-muted">{{if .Created}}{{fmtTime .Created}}{{else}}—{{end}}</td>
+          <td class="text-muted">{{if .Updated}}{{fmtTime .Updated}}{{else}}—{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="12" class="text-muted">No tables in this database.{{if .CreateURL}} Use the Create table button below to add one.{{else}} Use the SQL console to create one.{{end}}</td></tr>
+        {{end}}
+      </tbody>
+      {{if .Tables}}
+      <tfoot>
+        <tr class="tx-totals">
+          <td><strong>{{len .Tables}}</strong> table(s)</td>
+          <td colspan="5"></td>
+          <td class="text-end">{{if gt .TotalRows 0}}{{humanInt .TotalRows}}{{else}}—{{end}}</td>
+          <td></td>
+          <td class="text-end">{{if .HasSize}}{{humanBytes .TotalSize}}{{else}}—{{end}}</td>
+          <td></td>
+          <td></td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {{end}}
+    </table>
+  </div>
+  {{if .CreateURL}}
+  <a class="btn btn-primary btn-sm mt-2" href="{{.CreateURL}}" hx-get="{{.CreateURL}}" hx-push-url="true">{{icon "new"}} Create table</a>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
+{{- end}}

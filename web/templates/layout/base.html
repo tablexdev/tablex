@@ -1,0 +1,114 @@
+{{define "base" -}}
+<!doctype html>
+<html lang="en" data-bs-theme="{{if .Theme}}{{.Theme}}{{else}}light{{end}}"{{with .NavWidthStyle}} style="{{.}}"{{end}}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title id="page-title">{{.Title}} · TableX</title>
+  <meta name="csrf-token" content="{{.CSRF}}">
+  {{/* app.js loads CodeMirror on demand and stamps it with this, so the
+       lazily-loaded files get the same immutable caching as the rest. */}}
+  <meta name="asset-version" content="{{assetV}}">
+  <link rel="icon" href="/static/img/favicon.svg?v={{assetV}}" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css?v={{assetV}}">
+  {{if .NeedsEditor}}<link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css?v={{assetV}}">{{end}}
+  <link rel="stylesheet" href="/static/css/tablex.css?v={{assetV}}">
+</head>
+{{/* hx-target is inherited, and every navigation in the app swaps the same
+     region, so it is declared once here instead of on ~70 links and forms.
+     sidebar.html is the exception and keeps its targets explicit: its
+     lazy-load <details> swaps the TREE, not the page, and htmx resolves to the
+     NEAREST ancestor — so a tree link inside that <details> that relied on this
+     inherited value would replace the tree with the page instead. */}}
+<body id="{{.BodyID}}" class="{{if .LoggedIn}}tx-app{{else}}tx-login-page{{end}}" hx-target="#page_content">
+{{/* Loading feedback for every htmx request (see the in-flight counter in
+     app.js). Inert until app.js drives it, and aria-hidden because the same
+     state is announced through aria-busy on the region being replaced — a
+     screen reader should not hear a decorative bar as well. */}}
+<div id="tx-progress" class="tx-progress" aria-hidden="true"></div>
+{{/* One aria-live region for the whole app, in the shell so it is never
+     replaced. Flash messages arrive INSIDE the swapped region, and a
+     role="alert" element that is *created* by a swap is announced unreliably
+     across screen readers — the region has to already exist when the text lands
+     in it. app.js copies each flash and each toast here. */}}
+<div id="tx-announce" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+{{if .LoggedIn}}
+  <a href="#page_content" class="tx-skip">Skip to content</a>
+  {{template "sidebar" .}}
+  <div id="tx-main">
+    {{template "navbar_icons" .}}
+    {{template "tabs" .}}
+    <main id="page_content" tabindex="-1">{{template "page_main" .}}</main>
+  </div>
+{{else}}
+  <main id="page_content" class="tx-login-main">{{template "page_main" .}}</main>
+{{end}}
+
+  <script src="/static/vendor/htmx/htmx.min.js?v={{assetV}}" defer></script>
+  {{/* CodeMirror is 242 KB and only the SQL console, import form and stored-
+       program editor use it. Pages that need it load it here; an htmx navigation
+       onto one of them never re-runs <head>, so app.js injects the same three
+       files on demand. */}}
+  {{if .NeedsEditor}}
+  <script src="/static/vendor/codemirror/codemirror.min.js?v={{assetV}}" defer></script>
+  <script src="/static/vendor/codemirror/sql.min.js?v={{assetV}}" defer></script>
+  {{end}}
+  <script src="/static/js/app.js?v={{assetV}}" defer></script>
+  <script src="/static/vendor/alpine/alpine-csp.min.js?v={{assetV}}" defer></script>
+</body>
+</html>
+{{- end}}
+
+{{/* page_main is the swappable region: the restricted-mode note, flash messages
+     and the page content. The note lives HERE rather than in the outer layout so
+     it survives an htmx swap — the fragment path renders page_main too, and a
+     banner that vanished on the first navigation would be worse than none. */}}
+{{define "page_main" -}}
+  {{/* The page's heading. The classic chrome names the
+       current page in the breadcrumb and the tab strip rather than in a heading,
+       so 22 pages started at <h2> and two — the login page and Browse, the
+       signature screen — had no heading element at all. It is visually hidden
+       because adding a visible title to every page would change the classic
+       layout this project keeps; it carries the same text as <title>, so a
+       screen reader hears the page name where a sighted user reads the
+       breadcrumb. Being in page_main, it swaps with the page, so it can never go
+       stale or go missing on a new page. */}}
+  <h1 class="visually-hidden">{{.Title}}</h1>
+  {{template "restricted_note" .}}
+  {{template "flash" .}}
+  {{template "content" .}}
+{{- end}}
+
+{{/* restricted_note states the [restrict] policy once, so a user reads why
+     things are missing instead of inferring it from absent buttons. A UI that
+     quietly drops half its features looks broken; one that says what it will not
+     do looks deliberate.
+
+     It is not an alert: nothing has gone wrong, and it is on every page, so it is
+     a quiet standing note rather than something that asks to be dismissed. */}}
+{{define "restricted_note" -}}
+{{if .LoggedIn}}{{with .Allow.Notice}}
+{{/* Gated on the NOTICE, not on Restricted(): the two could in principle
+     disagree, and if they ever did, gating on the predicate would render an
+     empty box. One source of truth, and it is the text itself. */}}
+<p class="tx-restricted-note" role="note">{{icon "info"}} {{.}}</p>
+{{end}}{{end}}
+{{- end}}
+
+{{/* fragment is returned for htmx requests: it swaps #page_content (the main
+     content) and updates the breadcrumb, tabs and title out-of-band. The WHOLE
+     tab CONTAINER is swapped, not just its <ul>: a terminal page (the no-JS
+     confirmation interstitial) carries no tabs, and swapping only the <ul>
+     would blank the list but leave the container's bordered strip behind. The
+     container is hidden-when-empty rather than removed so the next tabbed
+     navigation still has a target to swap. */}}
+{{define "fragment" -}}
+<title id="page-title" hx-swap-oob="true">{{.Title}} · TableX</title>
+<ol id="breadcrumb-list" class="breadcrumb breadcrumb-navbar mb-0" hx-swap-oob="true">{{template "breadcrumb_inner" .}}</ol>
+<div id="topmenucontainer" class="tx-topmenu-container menucontainer{{if not .Tabs}} d-none{{end}}" hx-swap-oob="true">
+  <nav class="navbar tx-navbar">
+    <ul id="topmenu" class="nav tx-topmenu navbar-nav">{{template "tabs_inner" .}}</ul>
+  </nav>
+</div>
+{{template "page_main" .}}
+{{- end}}

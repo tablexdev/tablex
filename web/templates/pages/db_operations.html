@@ -1,0 +1,64 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "operations"}} Operations · {{$sc.DB}}</h2>
+  {{if .CanManageDB}}
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card tx-card mt-3">
+        <div class="card-header tx-card-header">Create new database</div>
+        <div class="card-body">
+          <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="d-flex gap-2 flex-wrap">
+            {{template "csrf" $.CSRF}}
+            <input type="hidden" name="action" value="create_db">
+            <input type="text" name="db_name" class="form-control form-control-sm" placeholder="database name" required aria-label="New database name">
+            {{template "collation_select" (list .Collations "")}}
+            <button type="submit" class="btn btn-tx btn-sm">{{icon "add"}} Create</button>
+          </form>
+        </div>
+      </div>
+      {{if .CanManageSchemas}}
+      <div class="card tx-card mt-3">
+        <div class="card-header tx-card-header">Schemas</div>
+        <div class="card-body">
+          <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="d-flex gap-2 mb-2">
+            {{template "csrf" $.CSRF}}
+            <input type="hidden" name="action" value="create_schema">
+            <input type="text" name="schema_name" class="form-control form-control-sm" placeholder="new schema name" required aria-label="New schema name">
+            <button type="submit" class="btn btn-tx btn-sm">{{icon "add"}} Create schema</button>
+          </form>
+          {{if .Schemas}}
+          <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" hx-confirm="Drop the selected schema and ALL its objects? This cannot be undone." class="d-flex gap-2">
+            {{template "csrf" $.CSRF}}
+            <input type="hidden" name="action" value="drop_schema">
+            <select name="schema_name" class="form-select form-select-sm" required aria-label="Schema to drop">
+              {{range .Schemas}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+            <button type="submit" class="btn btn-sm btn-tx-danger">{{icon "drop"}} Drop schema</button>
+          </form>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </div>
+    <div class="col-md-6">
+      <div class="card tx-card mt-3">
+        <div class="card-header tx-card-header">Danger zone</div>
+        <div class="card-body">
+          {{template "destructive" (dict
+            "CSRF" $.CSRF "URL" .PostURL "Action" "drop_db"
+            "Confirm" (printf "Drop database %s and ALL its tables? This cannot be undone." $sc.DB)
+            "Label" (printf "Drop database “%s”" $sc.DB))}}
+        </div>
+      </div>
+    </div>
+  </div>
+  {{else if not .EngineManagesDB}}
+  <div class="alert tx-alert tx-alert-info mt-3"><div class="tx-alert-msg">{{icon "info"}} This engine manages a single database file; create/drop is not applicable. Use the SQL console for table maintenance.</div></div>
+  {{else}}
+  <p class="text-muted mt-3">Not available on this TableX.</p>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

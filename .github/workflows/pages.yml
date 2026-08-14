@@ -1,0 +1,64 @@
+name: Pages
+
+# Publishes tablex.dev: the static site plus the three install scripts copied
+# to the site root, so `curl https://tablex.dev/install.sh` serves exactly the
+# file this repo tracks — one source, no duplication. Deployed through the
+# Actions Pages flow (no gh-pages branch to drift out of sync).
+#
+# The paths filter is safe HERE because this is its own workflow; ci.yml must
+# never get one — the release gate requires a CI run to exist for every
+# master commit.
+#
+# If tablex.dev serves a 404, the path filter is NOT the cause — check the Pages
+# configuration first (repo Settings -> Pages -> Source must be "GitHub Actions",
+# and this workflow must have completed a `deploy-pages` at least once). The
+# weekly schedule below is the standing safety net: because the filter keeps
+# ordinary commits from redeploying, nothing would otherwise republish a
+# deployment that was lost or expired, so the site could silently go stale — the
+# schedule redeploys the tracked site regardless of what changed.
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'site/**'
+      - 'install.sh'
+      - 'install.ps1'
+      - 'install.cmd'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC — republish so a lost deploy self-heals
+
+permissions:
+  contents: read
+
+# Deployments queue rather than cancel: a half-cancelled deploy has no
+# meaning, and order matters only in that the newest finishes last.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write      # deploy to GitHub Pages
+      id-token: write   # the Pages deployment API authenticates via OIDC
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          cp -r site/. _site/
+          cp install.sh install.ps1 install.cmd _site/
+          ls -la _site
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        id: deployment

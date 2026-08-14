@@ -1,0 +1,254 @@
+{{define "content" -}}
+{{with .Body}}
+{{$body := .}}
+{{$sc := .Scope}}
+{{/* $rw: may this grid offer row actions? A view is never writable through
+     TableX (the read-only-view policy), and restrict.read_only withholds
+     writing altogether. Both answers are folded into ONE variable so the
+     header, the row cells, the empty-row colspan and the bulk bar cannot
+     drift apart — a header with an action column over rows without one is a
+     misaligned table, not a cosmetic slip. Enforcement is elsewhere: these
+     routes are refused on the request regardless of what is rendered. */}}
+{{$rw := and $.Allow.Write (not .IsView)}}
+<div class="tx-page tx-browse">
+  <div class="tx-browse-toolbar">
+    <div class="tx-nav-buttons" role="group" aria-label="Page navigation">
+      {{if .ShowAll}}
+      <span class="tx-page-indicator">
+        Showing {{if ge .Total 0}}all {{humanInt .ShowingTo}} of <strong>{{if .Approx}}≈ {{end}}{{humanInt .Total}}</strong>{{else}}every row{{end}}
+      </span>
+      {{else}}
+      {{if .HasPrev}}
+      <a class="btn btn-sm btn-tx" href="{{.FirstURL}}" hx-get="{{.FirstURL}}" hx-push-url="true" title="First" aria-label="First page">«</a>
+      <a class="btn btn-sm btn-tx" href="{{.PrevURL}}" hx-get="{{.PrevURL}}" hx-push-url="true" title="Previous" aria-label="Previous page">‹</a>
+      {{else}}
+      <span class="btn btn-sm btn-tx disabled" aria-disabled="true" aria-label="First page (unavailable)">«</span>
+      <span class="btn btn-sm btn-tx disabled" aria-disabled="true" aria-label="Previous page (unavailable)">‹</span>
+      {{end}}
+      <span class="tx-page-indicator">
+        {{if ge .Total 0}}
+          Showing {{humanInt .ShowingFrom}}–{{humanInt .ShowingTo}} of <strong>{{if .Approx}}≈ {{end}}{{humanInt .Total}}</strong>
+          {{if gt .Pages 0}}<span class="text-muted">(page {{.Page}} / {{.Pages}})</span>{{end}}
+          {{if .Approx}}<a class="text-muted" href="{{.ExactURL}}" hx-get="{{.ExactURL}}" hx-push-url="true" title="The total is approximate — an engine statistics estimate, or a count stopped at the max_exact_count ceiling; click to run an exact COUNT(*)">(count exact)</a>{{end}}
+        {{else}}
+          Showing rows from {{.Offset}}
+        {{end}}
+      </span>
+      {{if .HasNext}}
+      <a class="btn btn-sm btn-tx" href="{{.NextURL}}" hx-get="{{.NextURL}}" hx-push-url="true" title="Next" aria-label="Next page">›</a>
+      {{if .LastURL}}<a class="btn btn-sm btn-tx" href="{{.LastURL}}" hx-get="{{.LastURL}}" hx-push-url="true" title="Last" aria-label="Last page">»</a>{{end}}
+      {{else}}
+      <span class="btn btn-sm btn-tx disabled" aria-disabled="true" aria-label="Next page (unavailable)">›</span>
+      {{if .LastURL}}<span class="btn btn-sm btn-tx disabled" aria-disabled="true" aria-label="Last page (unavailable)">»</span>{{end}}
+      {{end}}
+      {{end}}
+    </div>
+
+    {{/* A real GET form, not client-side URL assembly: the page-size control
+         must carry the WHOLE browse state, and a multi-key sort cannot be
+         reconstructed from a data-sort-col/data-sort-dir pair. The hidden
+         inputs are that state; htmx submits the same form on change so the
+         behaviour is identical with and without JavaScript. The bare
+         "change" trigger listens on the form itself (descendant changes
+         bubble to it) — a `from:select` selector would bind EVERY select in
+         the document, including the separate sort-by-key control below. */}}
+    <form method="get" action="{{.BaseURL}}" class="tx-browse-controls"
+          hx-get="{{.BaseURL}}" hx-include="closest form" hx-push-url="true" hx-trigger="change">
+      {{template "browse_state" $body}}
+      <input type="hidden" name="pos" value="0">
+      {{if not .ShowAll}}
+      <label class="tx-rpp">Rows:
+        <select name="rows" class="form-select form-select-sm d-inline-block w-auto" aria-label="Rows per page">
+          {{range .Options}}<option value="{{.}}"{{if eq . $body.Limit}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </label>
+      {{end}}
+      <noscript><button type="submit" class="btn btn-sm btn-tx">Apply</button></noscript>
+    </form>
+
+    <a class="btn btn-sm btn-tx" href="{{.ShowAllURL}}" hx-get="{{.ShowAllURL}}" hx-push-url="true">
+      {{if .ShowAll}}Paginate{{else}}Show all{{end}}
+    </a>
+
+    {{if .SortKeys}}
+    {{/* Sort by key. Each index IS a multi-column sort — which is why this
+         control only became honest once the sort became a key LIST; before
+         that it could have offered no more than the index's first column.
+         The option VALUE is the destination URL, so the select needs no form
+         and no client-side URL assembly; without JavaScript the same URLs are
+         plain links below. */}}
+    <label class="tx-rpp">Sort by key:
+      <select class="form-select form-select-sm d-inline-block w-auto" aria-label="Sort by index"
+              x-data="navSelect" x-on:change="go">
+        <option value="">(none)</option>
+        {{range .SortKeys}}<option value="{{.URL}}"{{if .Selected}} selected{{end}}>{{.Name}} ({{.Columns}})</option>{{end}}
+      </select>
+    </label>
+    <noscript>
+      {{range .SortKeys}}<a href="{{.URL}}" class="me-2">Sort by {{.Name}}</a>{{end}}
+    </noscript>
+    {{end}}
+  </div>
+
+  {{if .SortSummary}}
+  <div class="tx-browse-sort">
+    <span class="text-muted">{{icon "sort-down"}} Sorted by <code>{{.SortSummary}}</code></span>
+    <a href="{{.ClearSortURL}}" hx-get="{{.ClearSortURL}}" hx-push-url="true" class="ms-2">Clear sort</a>
+  </div>
+  {{end}}
+
+  {{if .HiddenColumns}}
+  {{/* Hiding is presentational only: the hidden columns are still selected and
+       still identify the row, so a hidden primary key does not cost a row its
+       Edit/Copy/Delete links. */}}
+  <div class="tx-hidden-cols d-print-none">
+    <span class="text-muted">Hidden:</span>
+    {{range .HiddenColumns}}<a href="{{.ShowURL}}" hx-get="{{.ShowURL}}" hx-push-url="true" class="tx-col-show"
+       title="Show this column again" aria-label="Show column {{.Name}}">{{.Name}}</a>{{end}}
+    <a href="{{.ShowAllColumnsURL}}" hx-get="{{.ShowAllColumnsURL}}" hx-push-url="true">Show all columns</a>
+  </div>
+  {{end}}
+
+  {{/* Two causes, two messages, reading the retained row count (not .Limit,
+       which is the configured ceiling and overstates a budget stop). The byte
+       budget means the rows themselves are large — paginate or filter; the row
+       cap means there are simply more rows — the same as any capped result. */}}
+  {{if .BudgetTruncated}}<div class="alert tx-alert tx-alert-warning py-1">{{icon "warning"}} Result truncated to {{len .Rows}} rows: these rows are large and reached the display size limit. Use pagination or a filter to see the rest.</div>
+  {{else if .Truncated}}<div class="alert tx-alert tx-alert-warning py-1">{{icon "warning"}} Result truncated to {{len .Rows}} rows.</div>{{end}}
+
+  {{if .WholeResult}}
+  {{/* Filter rows narrows the rendered rows in the browser; it is not a WHERE
+       clause and never re-queries. It is offered ONLY when this grid holds
+       every row of the result — otherwise a value that exists in the table but
+       not on this page reads as absent, which is exactly why the previous
+       client-side filter was deleted rather than kept. Paginated grids point
+       at Search instead, where the condition is parameterized and applies to
+       the whole table. Hidden without JavaScript, because there is nothing it
+       could do. */}}
+  <div class="tx-row-filter d-print-none" x-data="rowFilter" x-cloak>
+    <label class="tx-rpp">{{icon "search"}} Filter rows:
+      <input type="search" class="form-control form-control-sm d-inline-block w-auto"
+             placeholder="all {{len .Rows}} rows shown" aria-label="Filter the rows shown"
+             x-ref="q" x-on:input="apply">
+    </label>
+    <span class="text-muted tx-filter-count" x-ref="count" aria-live="polite"></span>
+  </div>
+  {{end}}
+
+  <form method="post" action="{{.DeleteURL}}" class="tx-browse-form" x-data="bulkRows"
+        hx-post="{{.DeleteURL}}" hx-confirm="Delete the selected rows? This cannot be undone."
+        {{/* Only hx-confirm: the row buttons must not inherit the BULK
+             "delete the selected rows" prompt. hx-target must NOT be listed —
+             disinheriting an attribute stops htmx's ancestor walk there, so the
+             row buttons would never reach the <body> target and would swap
+             themselves. */}}
+        hx-disinherit="hx-confirm">
+    {{template "csrf" $.CSRF}}
+    <div class="table-responsive">
+      <table class="table table-striped table-hover table-sm tx-results data">
+        <thead>
+          <tr>
+            {{if $rw}}
+            <th scope="col" class="tx-actions-head text-center"><input type="checkbox" class="tx-check-all" x-on:change="toggleAll" aria-label="Check all"></th>
+            {{/* colgroup, not col: one header over the three row-action columns. */}}
+            <th scope="colgroup" class="tx-actions-head text-center" colspan="3">Action</th>
+            {{end}}
+            {{range .Columns}}
+            {{/* Two links, because they do different things: the header sorts
+                 by this column ALONE (the familiar click), the trailing one
+                 adds it as a further key — or flips it if it already is one.
+                 Both are plain <a href>, so a multi-key sort works with no
+                 JavaScript and survives being bookmarked. */}}
+            <th scope="col" class="column_heading{{if .Numeric}} text-end{{end}}{{if .IsPrimary}} tx-pk{{end}}{{if .SortedAsc}} sorted-asc{{end}}{{if .SortedDesc}} sorted-desc{{end}}"
+                aria-sort="{{if .SortedAsc}}ascending{{else if .SortedDesc}}descending{{else}}none{{end}}">
+              <a href="{{.SortURL}}" hx-get="{{.SortURL}}" hx-push-url="true">
+                {{if .IsPrimary}}{{icon "key"}} {{end}}{{.Name}}
+                {{if .SortedAsc}}{{icon "sort-up"}}{{else if .SortedDesc}}{{icon "sort-down"}}{{end}}
+              </a>
+              <a href="{{.AddSortURL}}" hx-get="{{.AddSortURL}}" hx-push-url="true" class="tx-sort-add"
+                 title="{{if .SortRank}}Reverse this sort key{{else}}Add as a further sort key{{end}}"
+                 aria-label="{{if .SortRank}}Reverse sort key {{.SortRank}}, {{.Name}}{{else}}Add {{.Name}} as a further sort key{{end}}"
+                 >{{if .MultiSorted}}{{.SortRank}}{{else}}+{{end}}</a>
+              {{if .HideURL}}<a href="{{.HideURL}}" hx-get="{{.HideURL}}" hx-push-url="true" class="tx-col-hide d-print-none"
+                 title="Hide this column" aria-label="Hide column {{.Name}}">×</a>{{end}}
+            </th>
+            {{end}}
+          </tr>
+        </thead>
+        <tbody>
+          {{range $r, $row := .Rows}}
+          <tr class="tx-row">
+            {{if $rw}}
+            <td class="text-center d-print-none">
+              {{if $row.HasKey}}<input type="checkbox" class="tx-check multi_checkbox" name="rows[]" value="{{$row.KeyToken}}" aria-label="Select row {{add $r 1}}">
+              {{- else if $row.KeyTruncated}}<span class="text-warning" title="Row actions unavailable: a key value is too large to display in full, so this row cannot be identified exactly. Narrow the columns or use a filter to edit it." aria-label="Row actions unavailable: a key value was truncated for display">{{icon "warning"}}</span>{{end}}
+            </td>
+            <td class="text-center d-print-none tx-act">
+              {{if $row.HasKey}}<a href="{{$row.EditURL}}" hx-get="{{$row.EditURL}}" hx-confirm="unset" hx-push-url="true" title="Edit" aria-label="Edit row {{add $r 1}}">{{icon "edit"}}</a>{{end}}
+            </td>
+            <td class="text-center d-print-none tx-act">
+              {{if $row.HasKey}}<a href="{{$row.CopyURL}}" hx-get="{{$row.CopyURL}}" hx-confirm="unset" hx-push-url="true" title="Copy" aria-label="Copy row {{add $r 1}}">{{icon "copy"}}</a>{{end}}
+            </td>
+            <td class="text-center d-print-none tx-act">
+              {{if $row.HasKey}}<button type="submit" name="row" value="{{$row.KeyToken}}" formaction="{{$body.DeleteURL}}" class="tx-iconbtn tx-danger" title="Delete" aria-label="Delete row {{add $r 1}}"
+                hx-post="{{$body.DeleteURL}}" hx-vals='{"row": "{{$row.KeyToken}}"}' hx-confirm="Delete this row? This cannot be undone.">{{icon "delete"}}</button>{{end}}
+            </td>
+            {{end}}
+            {{range $i, $cell := $row.Cells}}
+            {{$col := index $body.Columns $i}}
+            <td class="tx-cell{{if $col.Numeric}} text-end{{end}}{{if $cell.Null}} tx-null{{end}}{{if $cell.Binary}} tx-binary{{end}}">
+              {{- if $cell.Null}}<em class="tx-null-label">NULL</em>
+              {{- else if $cell.Binary}}<span class="text-muted">{{$cell.Str}}</span>
+              {{- else}}{{truncate 200 $cell.Str}}{{end -}}
+            </td>
+            {{end}}
+          </tr>
+          {{else}}
+          <tr><td colspan="{{if $rw}}{{add (len .Columns) 4}}{{else}}{{len .Columns}}{{end}}" class="text-muted text-center py-3">This {{if $body.IsView}}view{{else}}table{{end}} is empty.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    {{if and .Rows $rw}}
+    <div class="tx-bulk-bar d-print-none">
+      <label class="tx-checkall-label"><input type="checkbox" class="tx-check-all" x-on:change="toggleAll"> Check all</label>
+      <span class="tx-with-selected">With selected:</span>
+      {{/* Each bulk action carries its own verb to the .../rows hub. The button
+           needs BOTH formaction (the no-JS submit) and hx-post (the htmx one) —
+           htmx cancels the native submit for a button inside a form, so exactly
+           one request goes out either way. hx-vals restates the verb because the
+           request htmx builds is the button's, not the form's. */}}
+      {{/* Deliberately NO hx-push-url: the page this renders is defined by a
+           row SELECTION, which no URL can carry. Pushing .../rows would leave an
+           address that 405s on reload; leaving the browse URL in place means a
+           reload returns to the grid, which is the honest answer. */}}
+      <button type="submit" name="action" value="edit" formaction="{{.RowsURL}}" class="btn btn-link btn-sm"
+              hx-post="{{.RowsURL}}" hx-vals='{"action": "edit"}'>{{icon "edit"}} Edit</button>
+      <button type="submit" name="action" value="copy" formaction="{{.RowsURL}}" class="btn btn-link btn-sm"
+              hx-post="{{.RowsURL}}" hx-vals='{"action": "copy"}'>{{icon "copy"}} Copy</button>
+      <button type="submit" name="action" value="export" formaction="{{.RowsURL}}" class="btn btn-link btn-sm"
+              hx-post="{{.RowsURL}}" hx-vals='{"action": "export"}'>{{icon "export"}} Export</button>
+      <button type="submit" class="btn btn-link btn-sm mult_submit tx-danger">{{icon "delete"}} Delete</button>
+      <a class="btn btn-link btn-sm" href="{{.InsertURL}}" hx-get="{{.InsertURL}}" hx-push-url="true">{{icon "insert"}} Insert new row</a>
+    </div>
+    {{end}}
+  </form>
+</div>
+{{end}}
+{{- end}}
+
+{{/* browse_state renders the current browse state as hidden inputs, so a GET
+     form that changes ONE thing (the page size) carries everything else
+     forward. The sort is multi-valued — one order/dir pair per key, in key
+     order — which is exactly what a single data-attribute could not express
+     and why the client-side URL assembly this replaced kept dropping it. Dot
+     is the browseBody. */}}
+{{define "browse_state"}}
+{{if .Scope.Schema}}<input type="hidden" name="schema" value="{{.Scope.Schema}}">{{end}}
+{{range .Sorts}}<input type="hidden" name="order" value="{{.Column}}"><input type="hidden" name="dir" value="{{if .Descending}}desc{{else}}asc{{end}}">
+{{end}}
+{{range .HiddenColumns}}<input type="hidden" name="hide" value="{{.Name}}">
+{{end}}
+{{if .Exact}}<input type="hidden" name="exact" value="1">{{end}}
+{{end}}

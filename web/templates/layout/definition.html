@@ -1,0 +1,31 @@
+{{/* definition_toggle renders the lazy "Definition" expander shared by the
+     routines, triggers and events lists.
+
+     The body is fetched on first open, never with the list: on MySQL a
+     replayable definition costs one SHOW CREATE per object, so inlining forty
+     of them would turn a single catalog query into forty round-trips. The
+     wiring is the sidebar tree's proven loader — hx-get on the <details>,
+     hx-trigger="toggle once", an explicit hx-target so the inherited
+     #page_content target from <body> cannot swallow the swap.
+
+     Parameters (build one with the `dict` helper):
+       URL   required — the definition fragment endpoint for this object
+       Label optional — summary text, default "Definition" */}}
+{{define "definition_toggle" -}}
+<details class="tx-defn" hx-get="{{.URL}}" hx-trigger="toggle once" hx-target="find .tx-defn-panel" hx-swap="innerHTML">
+  <summary class="tx-defn-summary">{{default .Label "Definition"}}</summary>
+  <div class="tx-defn-panel"><span class="tx-defn-loading">Loading…</span></div>
+</details>
+{{- end}}
+
+{{/* object_definition is the fragment swapped into the panel above. The <pre>
+     is the authoritative copy: app.js may lay a read-only CodeMirror alongside
+     it for highlighting, but with JavaScript off — or if that 242 KB library
+     never loads — this is already the complete, readable statement. */}}
+{{define "object_definition" -}}
+{{if .Error}}
+<p class="tx-defn-error" role="alert">{{.Error}}</p>
+{{- else}}
+<pre class="tx-defn-body"><code>{{.SQL}}</code></pre>
+{{- end}}
+{{- end}}

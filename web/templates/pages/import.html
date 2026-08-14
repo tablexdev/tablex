@@ -1,0 +1,51 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "import"}} Import {{if eq .Level "table"}}· {{.Scope.Table}}{{else if eq .Level "server"}}· Server{{else}}· {{.Scope.DB}}{{end}}</h2>
+  <form method="post" action="{{.PostURL}}" enctype="multipart/form-data" hx-post="{{.PostURL}}" hx-encoding="multipart/form-data">
+    {{template "csrf" $.CSRF}}
+    <div class="mb-2">
+      <label class="fw-bold" for="tx-import-file">Upload a file</label>
+      <input type="file" id="tx-import-file" name="file" class="form-control form-control-sm" accept=".sql,.csv,.txt,.gz">
+      <p class="text-muted small mt-1 mb-0">A gzipped file (<code>.gz</code>) is decompressed automatically — detected from the file's own bytes, not its name.</p>
+    </div>
+    {{if .IsTable}}
+    <div class="mb-2">
+      <label class="me-2">Format:</label>
+      <label class="me-2"><input type="radio" name="format" value="sql" checked> SQL</label>
+      <label class="me-2"><input type="radio" name="format" value="csv"> CSV (header row → columns)</label>
+      <p class="text-muted small mt-1 mb-0">JSON and XML are for data exchange and cannot be imported; re-import via SQL or CSV.</p>
+      <p class="text-muted small mt-1 mb-0">A CSV import runs as a single all-or-nothing transaction: if any row fails, the whole import is rolled back.</p>
+    </div>
+    {{else}}<input type="hidden" name="format" value="sql">{{end}}
+    <div class="mb-2">
+      <label class="fw-bold" for="tx-import-sql">…or paste SQL</label>
+      <textarea id="tx-import-sql" name="sql_script" class="tx-sql-editor" rows="6" spellcheck="false" aria-label="SQL script"></textarea>
+    </div>
+    <div class="tx-sql-actions">
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "import"}} Run import</button>
+    </div>
+  </form>
+
+  {{if .Ran}}
+  <div class="mt-3">
+    {{with .Summary}}
+    <div class="alert tx-alert {{if .Failed}}tx-alert-error{{else}}tx-alert-success{{end}}" role="alert">
+      <div class="tx-alert-msg">{{if .Failed}}{{icon "error"}}{{else}}{{icon "success"}}{{end}} {{.Message}}</div>
+      {{if .Detail}}<pre class="tx-alert-detail mb-0">{{truncate 400 .Detail}}</pre>{{end}}
+    </div>
+    {{if .WarningCount}}
+    <div class="alert tx-alert tx-alert-warning" role="alert">
+      <div class="tx-alert-msg">{{icon "warning"}} {{.WarningCount}} warning(s):</div>
+      <ul class="mb-0 small">
+        {{range .Warnings}}<li>{{.}}</li>{{end}}
+      </ul>
+      {{if gt .WarningCount (len .Warnings)}}<div class="small text-muted">Showing the first {{len .Warnings}} of {{.WarningCount}}.</div>{{end}}
+    </div>
+    {{end}}
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

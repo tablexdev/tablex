@@ -1,0 +1,1090 @@
+/* TableX theme — the classic two-tone database-admin look, layered on
+ * Bootstrap 5. An original stylesheet; design tokens mirror docs/ui-design.md. */
+
+:root {
+  --tx-link: #235a81;
+  --tx-text: #444;
+  --tx-nav-text: #000;
+  --tx-nav-bg-1: #f3f3f3;
+  --tx-nav-bg-2: #dadcde;
+  --tx-navbar-bg-1: #ffffff;
+  --tx-navbar-bg-2: #dcdcdc;
+  --tx-th-bg: #d3dce3;
+  --tx-row-even: #e5e5e5;
+  --tx-row-odd: #d5d5d5;
+  --tx-row-hover-1: #ced6df;
+  --tx-row-hover-2: #b6c6d7;
+  --tx-pointer: #cfc;
+  --tx-marker: #fc9;
+  --tx-btn-1: #f8f8f8;
+  --tx-btn-2: #d8d8d8;
+  --tx-border: #aaa;
+  --tx-success-bg: #ebf8a4;
+  --tx-success-bd: #a2d246;
+  --tx-success-fg: #2c3a00;
+  --tx-error-bg: #ffc0cb;
+  --tx-error-bd: #333;
+  --tx-error-fg: #5a0000;
+  --tx-info-bg: #e8eef1;
+  --tx-info-bd: #3a6c7e;
+  --tx-info-fg: #14323d;
+  --tx-warning-bg: #fdf2c7;
+  --tx-warning-bd: #d9b65a;
+  --tx-warning-fg: #5a4500;
+  --tx-card-header: #bbb;
+  --tx-card-header-text: #000;
+  --tx-tree-line: #666;
+
+  /* Secondary text. Two tokens because the two surface families set different
+   * floors: --tx-muted lands on the page surfaces below (lightest #efefef),
+   * while --tx-chrome-muted lands on the sidebar and top-bar gradients, whose
+   * far stops (#dadcde, #dcdcdc) are darker and need a darker grey to clear
+   * 4.5:1. web/contrast_test.go pins both. Data-row text uses --tx-text with
+   * italics instead: the row palette below is dark enough that no grey both
+   * reads as muted and passes AA on it. */
+  --tx-muted: #696969;
+  --tx-chrome-muted: #5f5f5f;
+
+  /* Surfaces & gradients — light values here; the dark block overrides each by
+   * value so every page surface is fully tokenized (no raw hex in dark rules). */
+  --tx-bg: #fff;
+  --tx-surface-alt: #f6f6f6;
+  --tx-surface-sunken: #fafafa;
+  --tx-totals-bg: #efefef;
+  --tx-th-grad-1: #fff;
+  --tx-th-grad-2: #ccc;
+  --tx-th-sort-1: #fff;
+  --tx-th-sort-2: #bcd;
+  --tx-th-text: #000;
+  --tx-topmenu-bg: #e8e8e8;
+  --tx-topmenu-tab-1: #fff;
+  --tx-topmenu-tab-2: var(--tx-navbar-bg-2);
+  --tx-topmenu-active-text: #000;
+  --tx-btn-hover-1: #fff;
+  --tx-btn-hover-2: #ddd;
+  --tx-login-grad-1: #e3e9ee;
+  --tx-login-grad-2: #c9d3da;
+  --tx-login-about: #506;
+  --tx-border-soft: #ccc;
+  /* Deeper than Bootstrap's #dc3545 so the row delete icons still clear 4.5:1
+   * on the darkest data-row surfaces (--tx-row-odd, the hover gradient, the
+   * marked-row peach). */
+  --tx-danger: #9c1f2b;
+  --tx-tree-table: #5a7a52;
+  --tx-focus: var(--tx-link);
+  /* The request progress bar. An accent, not a surface: it aliases the link
+   * colour so it follows the theme without a dark value of its own. */
+  --tx-progress: var(--tx-link);
+
+  /* Type — neutral system stack (Win11 system-ui → Segoe UI); no webfont. */
+  --tx-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --tx-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --tx-font-size: 0.82rem;
+  --tx-fs-xs: 0.72rem;
+  --tx-fs-sm: 0.78rem;
+  --tx-fs-md: 0.85rem;
+  --tx-fs-lg: 1.05rem;
+  --tx-fs-xl: 1.1rem;
+  --tx-fs-h2: 1.3rem;
+  --tx-fs-h1: 1.4rem;
+
+  /* Radius scale (consolidates 3/4/5px; signature button radius kept). */
+  --tx-radius-sm: 3px;
+  --tx-radius: 4px;
+  --tx-radius-lg: 5px;
+  --tx-btn-radius: 0.85rem;
+
+  /* Shadow scale. */
+  --tx-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  --tx-shadow-lg: 0 6px 24px rgba(0, 0, 0, 0.18);
+  --tx-shadow-drawer: 2px 0 14px rgba(0, 0, 0, 0.25);
+
+  /* Metrics */
+  --tx-nav-width: 240px;
+  --tx-cell-pad-y: 0.1em;
+  --tx-cell-pad-x: 0.3em;
+}
+
+/* --- base ------------------------------------------------------------------ */
+body {
+  font-family: var(--tx-font);
+  font-size: var(--tx-font-size);
+  color: var(--tx-text);
+  background: var(--tx-bg);
+}
+a {
+  color: var(--tx-link);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+.tx-icon { vertical-align: -0.125em; }
+/* Not tied to <h1>: the page's own <h1> is the visually hidden one in the layout
+ * (every page has exactly one), so a visible title like the home page's server
+ * name is a section heading that happens to be sized like a page title. */
+.tx-h1 { font-size: var(--tx-fs-h1); font-weight: bold; margin: 0.4rem 0 0.6rem; }
+h2.tx-h2 { font-size: var(--tx-fs-h2); font-weight: bold; margin: 0.2rem 0 0.7rem; }
+.tx-page { padding: 0.4rem 0.2rem; }
+
+/* --- app layout: fixed sidebar + offset main ------------------------------ */
+body.tx-app { margin: 0; }
+.tx-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--tx-nav-width);
+  height: 100vh;
+  overflow-y: auto;
+  background: linear-gradient(to bottom, var(--tx-nav-bg-1), var(--tx-nav-bg-2));
+  border-right: 1px solid var(--tx-border);
+  z-index: 800;
+  color: var(--tx-nav-text);
+}
+.tx-nav-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+}
+#tx-main {
+  margin-left: var(--tx-nav-width);
+  min-height: 100vh;
+}
+
+/* --- nav header & links --------------------------------------------------- */
+.tx-nav-header {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--tx-border);
+}
+.tx-logo {
+  font-weight: bold;
+  font-size: var(--tx-fs-xl);
+  color: var(--tx-link);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.tx-logo:hover { text-decoration: none; }
+.tx-logo-mark { color: var(--tx-link); }
+.tx-nav-links {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.tx-nav-links a, .tx-iconbtn {
+  color: var(--tx-text);
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+}
+.tx-nav-links a:hover, .tx-iconbtn:hover { color: var(--tx-link); }
+.tx-logout-form { margin: 0; }
+.tx-nav-server {
+  padding: 0.35rem 0.6rem;
+  font-weight: bold;
+  border-bottom: 1px solid var(--tx-border-soft);
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.tx-nav-filter {
+  padding: 0.35rem 0.5rem;
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.tx-nav-filter input { font-size: var(--tx-fs-sm); }
+
+/* --- nav tree ------------------------------------------------------------- */
+.tx-tree { padding: 0.2rem 0.2rem 2rem; }
+.tx-tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.9rem;
+}
+.tx-tree-root { padding-left: 0.2rem !important; }
+.tx-tree-node { position: relative; }
+.tx-tree-children { border-left: 1px dotted var(--tx-tree-line); }
+.tx-tree-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1px 2px;
+  border-radius: var(--tx-radius-sm);
+}
+.tx-tree-details > summary::-webkit-details-marker { display: none; }
+.tx-tree-details > summary::before {
+  content: "▸";
+  font-size: var(--tx-fs-xs);
+  color: var(--tx-tree-line);
+  width: 0.7rem;
+  display: inline-block;
+}
+.tx-tree-details[open] > summary::before { content: "▾"; }
+.tx-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1px 2px;
+}
+.tx-tree-leaf { padding-left: 0.7rem; }
+.tx-tree-link { color: var(--tx-nav-text); white-space: nowrap; }
+.tx-tree-node.active > .tx-tree-row > .tx-tree-link,
+.tx-tree-row.active > .tx-tree-link { font-weight: bold; color: var(--tx-link); }
+.tx-tree-row:hover { background: var(--tx-pointer); }
+.tx-tree-icon { color: var(--tx-link); display: inline-flex; }
+.tx-node-table .tx-tree-icon, .tx-node-view .tx-tree-icon { color: var(--tx-tree-table); }
+.tx-system > .tx-tree-details > summary .tx-tree-link,
+.tx-system .tx-tree-link { color: var(--tx-chrome-muted); font-style: italic; }
+.tx-tree-loading, .tx-tree-empty { color: var(--tx-chrome-muted); font-style: italic; padding-left: 0.7rem; }
+/* TableX's own danger token, not --bs-danger: Bootstrap keeps #dc3545 in both
+ * themes, which is only 3.3:1 on the sidebar's lower gradient stop. */
+.tx-tree-error { color: var(--tx-danger); padding-left: 0.7rem; }
+.tx-tree-error .tx-tree-error-text { font-style: italic; }
+
+/* --- top-right page nav icons --------------------------------------------- */
+.tx-page-nav-icons {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.25rem 0.8rem;
+  background: linear-gradient(to bottom, var(--tx-navbar-bg-1), var(--tx-navbar-bg-2));
+  border-bottom: 1px solid var(--tx-border);
+  font-size: var(--tx-fs-sm);
+}
+.tx-page-nav-icons .tx-ver { color: var(--tx-chrome-muted); }
+.tx-engine-badge, .tx-user { display: inline-flex; align-items: center; gap: 0.25rem; }
+
+/* --- breadcrumb (lives inside the top utility bar, on the left) ----------- */
+.tx-breadcrumb {
+  margin-right: auto;       /* push the engine/user/theme/logout icons to the right edge */
+  min-width: 0;             /* allow the breadcrumb to shrink before the icons do */
+  padding: 0;
+  background: transparent;
+}
+.tx-breadcrumb .breadcrumb { margin: 0; flex-wrap: nowrap; align-items: center; }
+.tx-breadcrumb .breadcrumb-item,
+.tx-breadcrumb .breadcrumb-item a { color: var(--tx-link); }
+.tx-breadcrumb .breadcrumb-item a { text-decoration: none; }
+.tx-breadcrumb .breadcrumb-item a:hover { text-decoration: underline; }
+.tx-breadcrumb .breadcrumb-item + .breadcrumb-item::before {
+  content: "»";
+  color: var(--tx-chrome-muted);
+  padding: 0 0.4rem;
+}
+.tx-breadcrumb .breadcrumb-item.active { color: var(--tx-text); font-weight: 600; }
+
+/* --- context tabs --------------------------------------------------------- */
+.tx-topmenu-container {
+  background: var(--tx-topmenu-bg);
+  border-bottom: 1px solid var(--tx-border-soft);
+  padding: 0;
+}
+.tx-navbar { padding: 0; }
+.tx-topmenu {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0.5rem 0;
+  gap: 1px;
+}
+.tx-topmenu .nav-item { margin: 0; }
+.tx-topmenu .nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.7rem;
+  font-weight: bold;
+  color: var(--tx-link);
+  background: linear-gradient(to bottom, var(--tx-topmenu-tab-1), var(--tx-topmenu-tab-2));
+  border: 1px solid var(--tx-border-soft);
+  border-bottom: none;
+  border-top-left-radius: var(--tx-radius);
+  border-top-right-radius: var(--tx-radius);
+}
+.tx-topmenu .nav-link:hover { background: var(--tx-bg); text-decoration: none; }
+.tx-topmenu .nav-item.active .nav-link,
+.tx-topmenu .nav-link.active {
+  background: var(--tx-bg);
+  border-bottom: 1px solid var(--tx-bg);
+  margin-bottom: -1px;
+  color: var(--tx-topmenu-active-text);
+}
+
+/* --- cards (home) --------------------------------------------------------- */
+.tx-card { border: 1px solid var(--tx-border); border-radius: var(--tx-radius); }
+.tx-card-header {
+  background: var(--tx-card-header);
+  color: var(--tx-card-header-text);
+  font-weight: bold;
+  padding: 0.35rem 0.7rem;
+}
+.tx-card .list-group-item { padding: 0.35rem 0.7rem; }
+
+/* --- buttons -------------------------------------------------------------- */
+.btn-tx {
+  background: linear-gradient(to bottom, var(--tx-btn-1), var(--tx-btn-2));
+  border: 1px solid var(--tx-border);
+  border-radius: var(--tx-btn-radius);
+  color: var(--tx-text);
+  padding: 0.1rem 0.7rem;
+  white-space: nowrap;
+}
+.btn-tx:hover { background: linear-gradient(to bottom, var(--tx-btn-hover-1), var(--tx-btn-hover-2)); }
+.btn-tx.disabled, .btn-tx:disabled { opacity: 0.45; pointer-events: none; }
+/* Keep short, static in-form submit labels on one line: when a width:100%
+ * form-control sibling squeezes a button, Bootstrap 5 (which dropped nowrap
+ * from base .btn) would otherwise wrap the icon and label onto two lines.
+ * Scoped to .btn-primary so the dynamic-label Drop-database button — which has
+ * no squeezing sibling and must shrink for long names — stays wrappable. */
+.tx-page form .btn-primary { white-space: nowrap; }
+
+/* --- results table (browse / structure) ----------------------------------- */
+.tx-results {
+  width: auto;
+  min-width: 60%;
+  border-collapse: collapse;
+  margin-bottom: 0.6rem;
+  background: var(--tx-bg);
+}
+.tx-results > thead > tr > th {
+  background: var(--tx-th-bg);
+  background-image: linear-gradient(to bottom, var(--tx-th-grad-1), var(--tx-th-grad-2));
+  border: 1px solid var(--tx-border);
+  padding: var(--tx-cell-pad-y) 0.4rem;
+  font-weight: bold;
+  white-space: nowrap;
+  color: var(--tx-th-text);
+}
+.tx-results > thead > tr > th a { color: var(--tx-th-text); display: inline-flex; align-items: center; gap: 0.2rem; }
+.tx-results th.tx-pk a { color: var(--tx-link); }
+.tx-results > tbody > tr > td,
+.tx-results > tfoot > tr > td {
+  border: 1px solid var(--tx-border-soft);
+  padding: var(--tx-cell-pad-y) var(--tx-cell-pad-x);
+  vertical-align: top;
+}
+.tx-results.data > tbody > tr:nth-child(even) > td { background: var(--tx-row-even); }
+.tx-results.data > tbody > tr:nth-child(odd) > td { background: var(--tx-row-odd); }
+.tx-results.data > tbody > tr:hover > td {
+  background: linear-gradient(to bottom, var(--tx-row-hover-1), var(--tx-row-hover-2));
+}
+/* The classic "selected row" peach; placed after :hover so a checked
+ * row stays marked even while hovered (see app.js: toggles .tx-marked). */
+.tx-results.data > tbody > tr.tx-marked > td { background: var(--tx-marker); }
+/* Italic rather than grey: this label sits on the alternating data rows, whose
+ * darkest surfaces leave no grey that both reads as muted and clears 4.5:1. */
+.tx-results .tx-null-label { color: var(--tx-text); font-style: italic; }
+/* white-space is what makes the ellipsis appear at all: without it the text wraps
+ * inside the 40rem box, never overflows, and text-overflow has nothing to do. */
+.tx-results .tx-cell { max-width: 40rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-results .tx-act a { color: var(--tx-link); }
+.tx-results td.tx-tbl-name a { font-weight: bold; }
+/* Inline icon+label action link used in result/listing tables (db_structure,
+ * db_search, server_databases). Matches the existing .tx-act look. */
+.tx-action { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+.tx-totals td { background: var(--tx-totals-bg); font-size: var(--tx-fs-sm); }
+.tx-system-row td { color: var(--tx-muted); font-style: italic; }
+.tx-results th.sorted-asc, .tx-results th.sorted-desc { background-image: linear-gradient(to bottom, var(--tx-th-sort-1), var(--tx-th-sort-2)); }
+
+/* --- browse toolbar ------------------------------------------------------- */
+.tx-browse-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.3rem 0 0.5rem;
+}
+.tx-nav-buttons { display: flex; align-items: center; gap: 0.25rem; }
+.tx-page-indicator { margin: 0 0.5rem; }
+.tx-browse-controls { display: flex; align-items: center; gap: 0.8rem; }
+.tx-rpp { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* [x-cloak] keeps an element hidden until Alpine initializes it. For the
+ * row filter that is not just anti-flicker: without JavaScript the control
+ * would do nothing at all, so staying hidden is the honest state. */
+[x-cloak] { display: none !important; }
+
+/* Filter rows: narrows what is already on the page (see rowFilter in app.js). */
+.tx-row-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.tx-filter-count { font-size: 0.85em; }
+
+/* Column visibility. The hide affordance sits in the header next to the sort
+ * controls; the restore bar names every hidden column so nothing disappears
+ * without a way back. */
+/* Both of these sit in a <th>, so they take the header's own text colour and
+ * lean on size for their secondary weight — a grey light enough to read as
+ * muted would not clear 4.5:1 on the header gradient. */
+.tx-col-hide {
+  margin-left: 0.2rem;
+  font-size: 0.8em;
+  color: var(--tx-th-text);
+  text-decoration: none;
+}
+.tx-col-hide:hover, .tx-col-hide:focus-visible { text-decoration: underline; }
+.tx-hidden-cols {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.9em;
+}
+.tx-col-show {
+  padding: 0 0.35em;
+  border: 1px solid var(--tx-border-soft);
+  border-radius: 3px;
+  background: var(--tx-surface-sunken);
+  text-decoration: none;
+}
+
+/* Multi-column sort. The "+" / rank badge sits beside the header link and must
+ * read as a separate control: it adds a further sort key (or reverses one)
+ * rather than replacing the sort the header link sets. */
+.tx-sort-add {
+  display: inline-block;
+  min-width: 1.1em;
+  margin-left: 0.25rem;
+  padding: 0 0.2em;
+  border-radius: 3px;
+  font-size: 0.78em;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--tx-th-text);
+  text-decoration: none;
+}
+.tx-sort-add:hover, .tx-sort-add:focus-visible {
+  background: var(--tx-surface-sunken);
+  color: var(--tx-link);
+}
+/* The active-sort summary line, between the toolbar and the grid. */
+.tx-browse-sort {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.9em;
+}
+.tx-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--tx-border-soft);
+}
+.tx-with-selected { font-weight: bold; }
+.tx-danger, .tx-danger:hover { color: var(--tx-danger); }
+/* Red-outline drop button (table/database). Drives Bootstrap's own --bs-btn-*
+ * custom properties so the red text + 1px border survive every interactive
+ * state — :hover / :focus-visible / :active set border-color from these vars at
+ * a higher specificity than a plain single-class rule could win. A separate
+ * class from .tx-danger (which is also on the icon-only row delete controls and
+ * must NOT gain a border); background stays transparent (no --bs-btn-*-bg). */
+.btn-tx-danger {
+  --bs-btn-color: var(--tx-danger);
+  --bs-btn-border-color: var(--tx-danger);
+  --bs-btn-hover-color: var(--tx-danger);
+  --bs-btn-hover-border-color: var(--tx-danger);
+  --bs-btn-active-color: var(--tx-danger);
+  --bs-btn-active-border-color: var(--tx-danger);
+}
+
+/* --- alerts --------------------------------------------------------------- */
+.tx-alert { border-radius: var(--tx-radius-lg); padding: 10px; margin: 0.5rem 0; border: 1px solid; }
+.tx-alert-success { background: var(--tx-success-bg); border-color: var(--tx-success-bd); color: var(--tx-success-fg); }
+.tx-alert-error { background: var(--tx-error-bg); border-color: var(--tx-error-bd); color: var(--tx-error-fg); }
+.tx-alert-info { background: var(--tx-info-bg); border-color: var(--tx-info-bd); color: var(--tx-info-fg); }
+.tx-alert-warning { background: var(--tx-warning-bg); border-color: var(--tx-warning-bd); color: var(--tx-warning-fg); }
+.tx-alert-msg { display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }
+.tx-alert-detail { margin-top: 0.4rem; font-family: var(--tx-mono); font-size: var(--tx-fs-sm); white-space: pre-wrap; }
+
+/* --- restricted-mode note ------------------------------------------------- *
+ * Deliberately NOT an alert: nothing has gone wrong, and it stands on every
+ * page, so it reads as a property of this deployment rather than as an event.
+ * Built only from tokens that already carry dark-mode values, so it needs no
+ * dark rule of its own. */
+.tx-restricted-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--tx-surface-alt);
+  border: 1px solid var(--tx-border-soft);
+  border-radius: var(--tx-radius-lg);
+  color: var(--tx-muted);
+  font-size: var(--tx-fs-sm);
+}
+
+/* --- toasts (htmx error feedback; see app.js showToast) -------------------- */
+#tx-toast-box {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 24rem;
+}
+.tx-toast {
+  background: var(--tx-error-bg);
+  border: 1px solid var(--tx-error-bd);
+  color: var(--tx-error-fg);
+  border-radius: var(--tx-radius-lg);
+  padding: 0.6rem 0.85rem;
+  font-size: var(--tx-fs-md);
+  box-shadow: var(--tx-shadow);
+}
+
+/* --- request progress ----------------------------------------------------- *
+ * Every navigation and every form submit here is an htmx request, and the work
+ * behind one can be a COUNT(*) over a large table, a cross-table search, an
+ * EXPLAIN or an import. With no feedback the click reads as "nothing happened",
+ * and the honest user response to that is to click again. app.js counts
+ * in-flight requests and drives this bar; the element is inert until it does. */
+.tx-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  z-index: 1090;            /* above the toasts, which sit at 1080 */
+  background: var(--tx-progress);
+  opacity: 0;
+  pointer-events: none;
+}
+/* Creeps toward 90% while the request is out: the width is a sign of life, not
+ * a real fraction — nothing here knows how far along a query is, and pretending
+ * otherwise would be a lie the bar cannot keep. A stalled request stops at 90%
+ * and stays there, which is the truthful reading. */
+.tx-progress.is-loading {
+  width: 90%;
+  opacity: 1;
+  transition: width 8s cubic-bezier(0.1, 0.7, 0.2, 1), opacity 120ms linear;
+}
+.tx-progress.is-done {
+  width: 100%;
+  opacity: 0;
+  transition: width 140ms ease-out, opacity 300ms linear 140ms;
+}
+
+/* The control that issued the request acknowledges the click itself. */
+.htmx-request { cursor: progress; }
+
+/* The region being replaced, dimmed while it is stale. The 400ms delay means a
+ * fast swap never visibly dims — only a wait long enough to wonder about does.
+ * Removing aria-busy falls back to the undelayed rule, so recovery is instant.
+ * app.js sets the attribute, so assistive tech is told the same thing. */
+#page_content,
+#tx_nav_tree { transition: opacity 120ms linear; }
+#page_content[aria-busy="true"],
+#tx_nav_tree[aria-busy="true"] {
+  opacity: 0.6;
+  transition: opacity 160ms linear 400ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The blanket rule near the end of this file already drops every transition,
+   * so nothing here needs to repeat that. What it cannot express is the width:
+   * with no animation the creep target reads as a bar stuck at 90%, so under
+   * reduced motion the bar is simply full while a request is out. */
+  .tx-progress.is-loading { width: 100%; }
+}
+
+/* --- error panel ---------------------------------------------------------- */
+.tx-error-panel { max-width: 50rem; }
+.tx-error-sql {
+  background: var(--tx-surface-alt);
+  border: 1px solid var(--tx-border);
+  border-radius: var(--tx-radius);
+  padding: 0.5rem;
+  font-family: var(--tx-mono);
+  white-space: pre-wrap;
+}
+
+/* --- login page ----------------------------------------------------------- */
+body.tx-login-page {
+  background: linear-gradient(to bottom, var(--tx-login-grad-1), var(--tx-login-grad-2));
+  min-height: 100vh;
+}
+.tx-login-main { display: flex; align-items: flex-start; justify-content: center; }
+.tx-login-wrap { width: 100%; max-width: 30rem; margin-top: 8vh; }
+.tx-login-card { border: 1px solid var(--tx-border); box-shadow: var(--tx-shadow-lg); }
+.tx-login-header { background: var(--tx-card-header); color: var(--tx-card-header-text); font-weight: bold; font-size: var(--tx-fs-lg); }
+.tx-login-footer { text-align: right; }
+.tx-login-about { text-align: center; margin-top: 0.8rem; color: var(--tx-login-about); font-size: var(--tx-fs-sm); }
+
+/* --- SQL console ----------------------------------------------------------- */
+.tx-sql-editor-wrap { border: 1px solid var(--tx-border); border-radius: var(--tx-radius); overflow: hidden; background: var(--tx-bg); }
+/* Bare textarea — shown briefly before CodeMirror upgrades it, and when JS is
+ * off. Inherit the theme so it never flashes a raw white box in dark mode. */
+.tx-sql-editor { width: 100%; border: none; background: transparent; color: var(--tx-text); font-family: var(--tx-mono); font-size: var(--tx-fs-md); padding: 0.4rem; resize: vertical; }
+/* The wrap above provides the border + radius, so CodeMirror itself has none
+ * (otherwise the two 1px borders stack into a doubled line). The min-height
+ * goes on .CodeMirror-scroll, NOT .CodeMirror: the scroll area is height:100%,
+ * which resolves to auto against a min-height-only parent, so a min-height on
+ * the outer box leaves the gutter short and an empty surface strip below it
+ * (a visible two-tone seam in dark). Sizing the scroll makes the gutter fill. */
+.CodeMirror { height: auto; border: none; font-family: var(--tx-mono); }
+.CodeMirror-scroll { min-height: 8rem; }
+.tx-sql-actions { margin: 0.5rem 0; display: flex; gap: 0.5rem; align-items: center; }
+.tx-result-meta { color: var(--tx-muted); margin: 0.4rem 0; }
+.tx-history { font-family: var(--tx-mono); font-size: var(--tx-fs-sm); }
+.tx-history li { margin-bottom: 0.2rem; }
+
+/* --- structure view ------------------------------------------------------- */
+.tx-section-title { font-weight: bold; margin: 0.9rem 0 0.4rem; font-size: 1rem; }
+.tx-ddl {
+  background: var(--tx-surface-alt);
+  border: 1px solid var(--tx-border);
+  border-radius: var(--tx-radius);
+  padding: 0.6rem;
+  font-family: var(--tx-mono);
+  font-size: var(--tx-fs-sm);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* --- structure editing (collapsible add/modify forms) --------------------- */
+.tx-edit-form { margin: 0.4rem 0 0.8rem; }
+.tx-edit-form > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  list-style: none;
+}
+.tx-edit-form > summary::-webkit-details-marker { display: none; }
+.tx-edit-form-body {
+  border: 1px solid var(--tx-border);
+  border-radius: var(--tx-radius);
+  padding: 0.6rem;
+  margin-top: 0.4rem;
+  background: var(--tx-surface-sunken);
+}
+
+/* --- edit/insert form ----------------------------------------------------- */
+.tx-edit-table { width: auto; }
+.tx-edit-table thead th { text-align: left; padding: 0.3rem 0.6rem; background: var(--tx-th-bg); border: 1px solid var(--tx-border); }
+.tx-edit-table td { padding: 0.3rem 0.6rem; border: 1px solid var(--tx-border-soft); }
+/* The column-name cell is a <th scope="row"> for the row semantics, but it is
+ * still body content: same gridline and weight as the cells beside it, so the
+ * form looks exactly as it did before it became labelled. */
+.tx-edit-table tbody th {
+  text-align: left;
+  font-weight: normal;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--tx-border-soft);
+}
+.tx-col-type { color: var(--tx-muted); font-family: var(--tx-mono); font-size: var(--tx-fs-sm); }
+/* Inside a results header the muted grey is 4.38:1 at the gradient midpoint —
+ * a WCAG 2.1 AA 1.4.3 failure at this size — so take the header's own text
+ * colour there, the same reasoning .tx-col-hide states. Scoped to the header
+ * cell so the eight legitimate non-th uses (structure/search/edit/qbe/…) keep
+ * the muted grey against their light backgrounds. */
+.tx-results > thead > tr > th .tx-col-type { color: var(--tx-th-text); }
+
+/* Bulk (multi-row) edit/copy: one bordered fieldset per selected row, so a long
+   form still reads as a stack of distinct rows rather than one endless table. */
+.tx-bulk-row {
+  border: 1px solid var(--tx-border);
+  padding: 0.4rem 0.6rem 0.6rem;
+  margin-bottom: 0.8rem;
+  background: var(--tx-surface-sunken);
+}
+.tx-bulk-legend {
+  float: none;
+  width: auto;
+  padding: 0 0.4rem;
+  margin-bottom: 0.2rem;
+  font-size: var(--tx-fs-sm);
+  font-weight: 600;
+  color: var(--tx-muted);
+}
+
+/* --- export form: per-table picker ---------------------------------------- */
+.tx-object-picker {
+  max-height: 14rem;
+  overflow-y: auto;
+  border: 1px solid var(--tx-border);
+  padding: 0.4rem 0.6rem;
+  background: var(--tx-surface-sunken);
+}
+.tx-object-row {
+  display: block;
+  font-size: var(--tx-fs-sm);
+  padding: 0.05rem 0;
+}
+.tx-object-row input { margin-right: 0.35rem; }
+.tx-rowrange { width: 8rem; }
+
+/* --- skip link (a11y: jump straight to content) --------------------------- */
+.tx-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  background: var(--tx-bg);
+  color: var(--tx-link);
+  font-weight: bold;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--tx-border);
+  border-radius: 0 0 var(--tx-radius) 0;
+}
+.tx-skip:focus { left: 0; top: 0; text-decoration: none; }
+#page_content:focus { outline: none; }
+
+/* --- responsive: collapse the fixed sidebar into an off-canvas drawer ------ */
+/* The nav toggle lives in the top bar and is shown only in the drawer layout.
+ * Its "hidden on wide screens" half is a MEDIA rule placed after the coarse-
+ * pointer block far below, not a bare declaration here: that block re-declares
+ * display on .tx-iconbtn (which the toggle also carries) at equal specificity,
+ * so a bare rule up here lost to it and put the hamburger on every wide touch
+ * screen — where tapping it runs the drawer's modal focus contract against a
+ * permanently visible sidebar and traps Tab. See the rule near the end. */
+@media (max-width: 767.98px) {
+  .tx-nav {
+    width: min(var(--tx-nav-width), 84vw);
+    transform: translateX(-100%);
+    /* visibility, not just transform: a drawer moved off-screen is still in the
+     * tab order and still in the accessibility tree, so the entire database
+     * tree used to sit off the left edge collecting Tab stops with no way to
+     * see what was focused. visibility:hidden removes it from both, and unlike
+     * `inert` it needs no JS to know about this breakpoint. The 0.2s delay lets
+     * the slide-out finish before it disappears; opening is immediate. */
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+    box-shadow: var(--tx-shadow-drawer);
+  }
+  body.tx-nav-open .tx-nav {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+  }
+  body.tx-nav-open::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.32);
+    z-index: 799;
+  }
+  #tx-main { margin-left: 0; }
+  /* A deep Server » db » table breadcrumb overflows well before the phone tier:
+   * the top bar loses its width to the nav toggle here, not at 576px. */
+  .tx-breadcrumb .breadcrumb { flex-wrap: wrap; }
+  .tx-nav-resizer { display: none; }
+  .tx-nav-toggle { display: inline-flex; }
+  .tx-page-nav-icons { justify-content: space-between; }
+  .tx-page { padding: 0.4rem 0.4rem; }
+  .tx-browse-toolbar { gap: 0.4rem; }
+}
+
+/* --- phone tier: stop the top bar/breadcrumb/toolbar from overflowing ------
+ * Placed after the drawer block so it wins at the narrowest widths. */
+@media (max-width: 575.98px) {
+  /* Icon-only top bar: hide the engine/version + user labels (the icons keep
+   * their title + aria-label, so the info survives for tooltip/SR). */
+  .tx-bar-label { display: none; }
+  .tx-page-nav-icons { gap: 0.5rem; }
+  /* Let a deep Server » db » table breadcrumb wrap instead of clipping. */
+  .tx-breadcrumb .breadcrumb { flex-wrap: wrap; }
+  /* Stack the browse toolbar so pagination + rows-per-page don't collide. */
+  .tx-browse-toolbar { flex-direction: column; align-items: stretch; gap: 0.4rem; }
+  .tx-nav-buttons, .tx-browse-controls { width: 100%; }
+}
+
+/* --- horizontal table scrolling: momentum + a faint pure-CSS scroll hint ----
+ * Every results table is wrapped in .table-responsive (overflow-x:auto). The
+ * layered gradients show a soft edge shadow ONLY while the table is actually
+ * scrollable — background-attachment local vs scroll is the one pure-CSS way
+ * to detect "currently scrollable" (no JS, CSP-safe). Kept deliberately faint. */
+.table-responsive {
+  -webkit-overflow-scrolling: touch;
+  background:
+    linear-gradient(to right, var(--tx-bg) 30%, rgba(0, 0, 0, 0)) left center,
+    linear-gradient(to left, var(--tx-bg) 30%, rgba(0, 0, 0, 0)) right center,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)) left center,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)) right center;
+  background-repeat: no-repeat;
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* --- modernization (opt-in; never changes the default classic layout) ----- */
+/* Note: result headers are intentionally NOT position: sticky. The tables live
+ * inside Bootstrap's .table-responsive overflow container (no fixed height),
+ * which makes sticky inert for vertical page scrolling and risks the header
+ * overlapping the toolbar — the classic layout scrolls the page normally. */
+/* Subtle, snappy hover/focus transitions (≤150ms). The reduced-motion
+ * media query below nukes them globally for users who ask for less motion. */
+a,
+.tx-tree-row,
+.tx-topmenu .nav-link,
+.btn-tx,
+.tx-iconbtn,
+.tx-results .tx-act a {
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+/* Visible keyboard focus (do not suppress :focus-visible). */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--tx-focus);
+  outline-offset: 1px;
+}
+
+/* --- touch ergonomics (coarse pointers only; never affects a mouse) --------
+ * Loosens the dense classic spacing just enough to give fingers a target;
+ * scoped to touch so the desktop layout is byte-for-byte unchanged. */
+@media (hover: none) and (pointer: coarse) {
+  :root {
+    --tx-cell-pad-y: 0.35em;
+    --tx-cell-pad-x: 0.5em;
+  }
+  .tx-iconbtn,
+  .tx-results .tx-act a,
+  .tx-action,
+  .tx-nav-links a {
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tx-tree-row,
+  .tx-tree-details > summary { padding: 6px 4px; }
+  .btn-tx { padding: 0.3rem 0.7rem; }
+}
+
+/* The nav toggle's hidden half (see the responsive section above). It sits
+ * AFTER the coarse-pointer block on purpose: that block gives every .tx-iconbtn
+ * — the toggle included — a touch-sized `display: inline-flex` at the same
+ * specificity, so only a later rule can win. Media-scoped to the wide layout
+ * rather than declared bare, because a bare rule here would also hide the
+ * toggle on phones, where it is the ONLY way to open the drawer. Below 768px
+ * nothing here applies and the max-width block's `inline-flex` stands.
+ *
+ * Keep those two properties in sync: navIsOverlay() reads this button's
+ * computed display to decide whether the sidebar is a modal drawer at all. */
+@media (min-width: 768px) {
+  .tx-nav-toggle { display: none; }
+}
+
+/* --- dark mode (modernization, opt-in) — value-only token overrides --------
+ * Every surface/gradient AND every foreground that sits on one is a token (see
+ * :root), so dark mode is entirely a re-spec of token VALUES: the nav, top-bar,
+ * button, th, topmenu, totals, login, alert and surface gradients all collapse
+ * into the same tokens the light theme uses. Nothing below this block styles a
+ * dark-mode rule of its own except the CodeMirror re-skin, which has no light
+ * counterpart to tokenize against. web/contrast_test.go enforces that: a rule
+ * anywhere in this file that hardcodes a colour fails the build, because it is
+ * a colour no theme can reach — exactly the defect (F1) that made card headers
+ * unreadable here at 1.83:1. */
+[data-bs-theme="dark"] {
+  --tx-text: #d8d8d8;
+  --tx-link: #6db3e8;
+  --tx-nav-text: #d8d8d8;
+  --tx-th-bg: #2b3946;
+  --tx-th-text: #e0e0e0;
+  --tx-row-even: #2a2e33;
+  --tx-row-odd: #23262b;
+  --tx-row-hover-1: #33414f;
+  --tx-row-hover-2: #2a3744;
+  /* Darker than the light peach's dark analogue would be: row action links must
+   * still clear 4.5:1 on a marked row. */
+  --tx-marker: #4a3c22;
+  --tx-card-header: #333a42;
+  --tx-card-header-text: #e8eaed;
+  --tx-border: #555;
+  --tx-border-soft: #333a42;
+  --tx-muted: #9aa4ad;
+  --tx-chrome-muted: #9aa4ad;
+  /* The tree's dotted connectors, its ▸/▾ disclosure markers and its table/view
+   * icons had no dark values at all: the connectors sat at 2.64:1 against the
+   * dark sidebar, under the 3:1 that WCAG asks of a non-text indicator. */
+  --tx-tree-line: #7a828a;
+  --tx-tree-table: #8fb886;
+  /* Dark overrides so tree-row hover stays legible and danger text keeps ~5:1
+   * even on a hovered row (the light #9c1f2b is under 2:1 on the dark surface). */
+  --tx-pointer: #2e4436;
+  --tx-danger: #f19aa2;
+  /* Alerts and toasts. Without these the panels kept their light pastel fills
+   * and lit up the dark page (F7): the fill is a token, so only the value was
+   * missing. Borders stay a mid tint of the same hue. */
+  --tx-success-bg: #232d14;
+  --tx-success-bd: #5c7a2e;
+  --tx-success-fg: #cbe08a;
+  --tx-error-bg: #32191d;
+  --tx-error-bd: #8c4a52;
+  --tx-error-fg: #f2b8bf;
+  --tx-info-bg: #1b2a31;
+  --tx-info-bd: #4d7f92;
+  --tx-info-fg: #b9d8e3;
+  --tx-warning-bg: #2e2614;
+  --tx-warning-bd: #8a733a;
+  --tx-warning-fg: #e8d79a;
+  /* Surfaces & gradients */
+  --tx-bg: #1b1e22;
+  --tx-surface-alt: #23262b;
+  --tx-surface-sunken: #20242a;
+  --tx-totals-bg: #23262b;
+  --tx-th-grad-1: #333a42;
+  --tx-th-grad-2: #23262b;
+  --tx-th-sort-1: #3a4757;
+  --tx-th-sort-2: #243240;
+  --tx-topmenu-bg: #23262b;
+  --tx-topmenu-tab-1: #2b3038;
+  --tx-topmenu-tab-2: #23262b;
+  --tx-login-grad-1: #20262c;
+  --tx-login-grad-2: #14181c;
+  --tx-login-about: var(--tx-muted);
+  /* Nav, top-bar and button gradients collapse into their light-side tokens.
+   * --tx-topmenu-tab-2 is pinned above so it does NOT inherit the dark
+   * navbar-bg-2 (the top bar ends darker than the topmenu tabs). */
+  --tx-nav-bg-1: #23262b;
+  --tx-nav-bg-2: #1b1e22;
+  --tx-navbar-bg-1: #23262b;
+  --tx-navbar-bg-2: #1b1e22;
+  --tx-btn-1: #2f343b;
+  --tx-btn-2: #23262b;
+  --tx-btn-hover-1: #3a4049;
+  --tx-btn-hover-2: #2b2f35;
+  --tx-topmenu-active-text: #fff;
+}
+
+/* --- CodeMirror dark theme (SQL console) -----------------------------------
+ * CodeMirror 5 ships only its light "default" theme (white surface, black
+ * caret, light gutters, dark-on-light syntax colors). Without a build step we
+ * re-skin it here for dark mode; light mode keeps CodeMirror's own defaults.
+ * The syntax palette is a contained One-Dark-ish set tuned for the surface. */
+[data-bs-theme="dark"] .tx-sql-editor-wrap { background: var(--tx-surface-alt); }
+[data-bs-theme="dark"] .CodeMirror { background: var(--tx-surface-alt); color: var(--tx-text); }
+[data-bs-theme="dark"] .CodeMirror-gutters { background: var(--tx-bg); border-right: 1px solid var(--tx-border-soft); }
+[data-bs-theme="dark"] .CodeMirror-linenumber { color: var(--tx-muted); }
+[data-bs-theme="dark"] .CodeMirror-cursor { border-left: 1px solid var(--tx-text); }
+[data-bs-theme="dark"] .CodeMirror-selected { background: #33414f; }
+[data-bs-theme="dark"] .CodeMirror-focused .CodeMirror-selected { background: #3a4757; }
+[data-bs-theme="dark"] .CodeMirror-line::selection,
+[data-bs-theme="dark"] .CodeMirror-line > span::selection,
+[data-bs-theme="dark"] .CodeMirror-line > span > span::selection { background: #3a4757; }
+[data-bs-theme="dark"] .CodeMirror-activeline-background { background: rgba(255, 255, 255, 0.04); }
+[data-bs-theme="dark"] .CodeMirror-scrollbar-filler,
+[data-bs-theme="dark"] .CodeMirror-gutter-filler { background-color: var(--tx-surface-alt); }
+[data-bs-theme="dark"] .cm-s-default .cm-keyword { color: #6cb6ff; }
+[data-bs-theme="dark"] .cm-s-default .cm-atom { color: #56b6c2; }
+[data-bs-theme="dark"] .cm-s-default .cm-number { color: #d19a66; }
+[data-bs-theme="dark"] .cm-s-default .cm-def { color: #61afef; }
+[data-bs-theme="dark"] .cm-s-default .cm-variable-2 { color: #56b6c2; }
+[data-bs-theme="dark"] .cm-s-default .cm-variable-3,
+[data-bs-theme="dark"] .cm-s-default .cm-type { color: #98c379; }
+[data-bs-theme="dark"] .cm-s-default .cm-comment { color: #8a929c; }
+[data-bs-theme="dark"] .cm-s-default .cm-string { color: #98c379; }
+[data-bs-theme="dark"] .cm-s-default .cm-string-2 { color: #e5c07b; }
+[data-bs-theme="dark"] .cm-s-default .cm-meta,
+[data-bs-theme="dark"] .cm-s-default .cm-qualifier { color: #9aa4ad; }
+[data-bs-theme="dark"] .cm-s-default .cm-builtin { color: #61afef; }
+[data-bs-theme="dark"] .cm-s-default .cm-bracket { color: #abb2bf; }
+[data-bs-theme="dark"] .cm-s-default .cm-operator { color: var(--tx-text); }
+[data-bs-theme="dark"] .cm-s-default .cm-error { color: #e06c75; }
+[data-bs-theme="dark"] div.CodeMirror span.CodeMirror-matchingbracket { color: #98c379; }
+
+/* --- Query history clickable items (SQL console) --- */
+.tx-history-item {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  width: 100%;
+}
+.tx-history-item:hover code { text-decoration: underline; }
+
+/* --- Designer: schema map of table cards + relationships --- */
+.tx-designer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+/* Scrolls rather than clips: a wide table's column list used to be cut off with
+ * no way to see the rest. The cap keeps one big table from pushing the whole
+ * schema map off the screen. */
+.tx-designer-table { overflow: auto; max-height: 18rem; }
+.tx-designer-th { font-weight: 600; padding: 0.35rem 0.6rem; }
+.tx-designer-cols { width: 100%; border-collapse: collapse; font-size: var(--tx-fs-md); }
+.tx-designer-cols td { padding: 0.15rem 0.6rem; border-top: 1px solid var(--tx-border); }
+.tx-designer-col { font-family: var(--bs-font-monospace, var(--tx-mono)); }
+
+/* --- small utilities (replace one-off inline styles; keep templates CSP-clean) */
+.tx-rowcount { font-size: var(--tx-fs-sm); }
+.tx-maxw-sm { max-width: 20rem; }
+.tx-maxw-md { max-width: 32rem; }
+.tx-maxw-lg { max-width: 34rem; }
+
+/* --- Definition panels (routines / triggers / events) ---
+ * Each object's row is followed by a second row holding a lazily-loaded
+ * <details>. Tokens only, no raw hex, so the dark block below inherits. */
+.tx-defn-row > td { border-top: 0; padding-top: 0; }
+.tx-defn { font-size: var(--tx-fs-md); }
+.tx-defn-summary {
+  cursor: pointer;
+  color: var(--tx-link);
+  width: fit-content;
+  padding: 0.1rem 0.2rem;
+}
+.tx-defn-summary:hover { text-decoration: underline; }
+.tx-defn-panel:not(:empty) { margin-top: 0.35rem; }
+.tx-defn-loading { color: var(--tx-muted); font-style: italic; }
+.tx-defn-error { color: var(--tx-danger); margin: 0; }
+.tx-defn-body {
+  font-family: var(--bs-font-monospace, var(--tx-mono));
+  background: var(--tx-surface-sunken);
+  border: 1px solid var(--tx-border-soft);
+  border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  margin: 0;
+  max-height: 28rem;
+  overflow: auto;
+  white-space: pre;
+}
+/* The <pre> stays in the DOM as the source of truth once CodeMirror renders a
+ * highlighted copy beside it; hiding rather than replacing it keeps the
+ * definition intact through an htmx history restore. */
+.tx-defn-body.tx-defn-hidden { display: none; }
+.tx-defn-cm .CodeMirror {
+  height: auto;
+  max-height: 28rem;
+  border: 1px solid var(--tx-border-soft);
+  border-radius: 3px;
+}
+
+/* ENUM/SET value lists are entered one member per line, so a monospace face
+ * makes trailing spaces and lookalike characters visible — the difference
+ * between 'on' and 'on ' is otherwise invisible and would define two members
+ * that look identical in every listing afterwards. */
+.tx-values-input {
+  font-family: var(--bs-font-monospace, var(--tx-mono));
+  min-width: 12rem;
+}

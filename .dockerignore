@@ -1,0 +1,24 @@
+# Keep the build context small and reproducible. web/ IS required (embedded).
+.reference/
+.git/
+.claude/
+.idea/
+CLAUDE.md
+bin/
+dist/
+*.exe
+*.out
+*.log
+*.db
+*.db-shm
+*.db-wal
+cookies.txt
+# local test/scratch artifacts
+tmp-demo.db
+server.log
+# root-level scratch pages only — dockerignore '*' does not cross '/', but the
+# anchored form makes the intent explicit (web/templates/**.html ARE embedded)
+/*.html
+books.sql
+authors.csv
+db.json

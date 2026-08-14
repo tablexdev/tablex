@@ -1,0 +1,14 @@
+{{define "breadcrumb" -}}
+<nav id="server-breadcrumb" class="tx-breadcrumb" aria-label="breadcrumb">
+  <ol id="breadcrumb-list" class="breadcrumb breadcrumb-navbar mb-0">{{template "breadcrumb_inner" .}}</ol>
+</nav>
+{{- end}}
+
+{{define "breadcrumb_inner" -}}
+{{range .Breadcrumb -}}
+<li class="breadcrumb-item{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>
+  {{- if and .URL (not .Active)}}<a href="{{.URL}}" hx-get="{{.URL}}" hx-push-url="true">{{if .Icon}}{{icon .Icon}} {{end}}{{.Label}}</a>
+  {{- else}}{{if .Icon}}{{icon .Icon}} {{end}}{{.Label}}{{end}}
+</li>
+{{- end}}
+{{- end}}

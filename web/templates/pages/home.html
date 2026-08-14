@@ -1,0 +1,65 @@
+{{define "content" -}}
+{{with .Body}}
+<div id="maincontainer">
+  {{/* h2, not h1: the layout already emits the page's single <h1>. Keeps the
+       tx-h1 sizing so the home page still opens on the server name. */}}
+  <h2 class="tx-h1">{{icon "server"}} {{$.ServerName}}</h2>
+  <div class="container-fluid">
+    <div class="row mb-3">
+      <div class="col-lg-7">
+        <div class="card tx-card mt-4">
+          <div class="card-header tx-card-header">General settings</div>
+          <ul class="list-group list-group-flush">
+            <li class="list-group-item"><a href="{{urlServer ""}}" hx-get="{{urlServer ""}}" hx-push-url="true">{{icon "database"}} Databases <span class="badge bg-secondary">{{if ge .DatabaseCount 0}}{{.DatabaseCount}}{{else}}—{{end}}</span></a></li>
+            {{/* Restricted mode: a restricted TableX does not offer what it
+                 would refuse (docs/security.md §9). The console and import
+                 routes 403 under allow_console=false, and the users tab is
+                 DDL-classified, so each link renders only with its
+                 allowance — whole <li>, or an empty bordered row remains. */}}
+            {{if $.Allow.Console}}<li class="list-group-item"><a href="/server/sql" hx-get="/server/sql" hx-push-url="true">{{icon "sql"}} SQL console</a></li>{{end}}
+            <li class="list-group-item"><a href="/server/status" hx-get="/server/status" hx-push-url="true">{{icon "info"}} Server status</a></li>
+            <li class="list-group-item"><a href="/server/variables" hx-get="/server/variables" hx-push-url="true">{{icon "settings"}} Variables</a></li>
+            <li class="list-group-item"><a href="/server/processes" hx-get="/server/processes" hx-push-url="true">{{icon "operations"}} Processes</a></li>
+            {{if and (hasCap $.Caps "Users") $.Allow.DDL}}<li class="list-group-item"><a href="/server/users" hx-get="/server/users" hx-push-url="true">{{icon "users"}} User accounts</a></li>{{end}}
+            <li class="list-group-item"><a href="/server/export" hx-get="/server/export" hx-push-url="true">{{icon "export"}} Export</a></li>
+            {{if $.Allow.Console}}<li class="list-group-item"><a href="/server/import" hx-get="/server/import" hx-push-url="true">{{icon "import"}} Import</a></li>{{end}}
+          </ul>
+        </div>
+        <div class="card tx-card mt-4">
+          <div class="card-header tx-card-header">Appearance</div>
+          <ul class="list-group list-group-flush">
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Color mode
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-tx-theme-toggle>{{icon "theme"}} Toggle light / dark</button>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card tx-card mt-4">
+          <div class="card-header tx-card-header">Database server</div>
+          <ul class="list-group list-group-flush">
+            <li class="list-group-item d-flex justify-content-between"><span>Server</span><span class="text-muted">{{default .Info.Host "localhost"}}{{if .Info.Port}}:{{.Info.Port}}{{end}}</span></li>
+            <li class="list-group-item d-flex justify-content-between"><span>Type</span><span class="text-muted">{{.Info.Flavor}}</span></li>
+            <li class="list-group-item d-flex justify-content-between"><span>Version</span><span class="text-muted">{{.Info.Version}}</span></li>
+            <li class="list-group-item d-flex justify-content-between"><span>User</span><span class="text-muted">{{default .Info.User "—"}}</span></li>
+            <li class="list-group-item d-flex justify-content-between"><span>Charset</span><span class="text-muted">{{default .Info.Charset "—"}}</span></li>
+            {{if .Info.Collation}}<li class="list-group-item d-flex justify-content-between"><span>Collation</span><span class="text-muted">{{.Info.Collation}}</span></li>{{end}}
+          </ul>
+        </div>
+        <div class="card tx-card mt-4">
+          <div class="card-header tx-card-header">TableX</div>
+          <ul class="list-group list-group-flush">
+            <li class="list-group-item d-flex justify-content-between"><span>Version</span><span class="text-muted">{{default .AppVersion "dev"}}</span></li>
+            <li class="list-group-item d-flex justify-content-between"><span>Website</span><a href="{{.Website}}" target="_blank" rel="noopener">tablex.dev</a></li>
+            <li class="list-group-item d-flex justify-content-between"><span>Support</span><a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a></li>
+            <li class="list-group-item text-muted small">A single-binary, multi-database admin tool — MIT licensed.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{- end}}

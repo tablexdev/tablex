@@ -1,0 +1,22 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{.Title}}</h2>
+  {{if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>{{end}}
+  {{if .Variables}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        {{range .Variables}}
+        <tr><td class="tx-tbl-name">{{.Name}}</td><td><code>{{truncate 200 .Value}}</code></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else if not .Error}}
+  {{template "empty_state" (default .Empty "No data.")}}
+  {{end}}
+</div>
+{{end}}
+{{- end}}

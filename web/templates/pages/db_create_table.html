@@ -1,0 +1,80 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "new"}} Create table · {{if $sc.Schema}}{{$sc.Schema}}{{else}}{{$sc.DB}}{{end}}</h2>
+
+  {{if $.Allow.DDL}}
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" x-data="createTableRows" data-tx-guard="the table you were defining">
+    {{template "csrf" $.CSRF}}
+    <div class="row mb-3 tx-maxw-md">
+      <label for="ct_table_name" class="col-sm-3 col-form-label">Table name</label>
+      <div class="col-sm-9"><input type="text" name="table_name" id="ct_table_name" class="form-control form-control-sm" autocomplete="off" required autofocus></div>
+    </div>
+
+    <h3 class="tx-section-title">Columns</h3>
+    <p class="text-muted small">Rows with an empty name are ignored.</p>
+    <div class="table-responsive">
+      <table class="table table-sm tx-results">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Type</th>
+            <th scope="col">Length / values</th>
+            <th scope="col" class="text-center">Null</th>
+            <th scope="col">Default</th>
+            <th scope="col">Default value</th>
+            <th scope="col">Comment</th>
+            <th scope="col" class="text-center">PK</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .RowIndexes}}
+          <tr class="ct-row">
+            <td><input type="text" name="col_name_{{.}}" class="form-control form-control-sm" autocomplete="off" aria-label="Column name"></td>
+            <td>
+              <select name="col_type_{{.}}" class="form-select form-select-sm" aria-label="Column type">
+                {{range $.Body.ColumnTypes}}<option value="{{.}}">{{.}}</option>{{end}}
+              </select>
+            </td>
+            <td>
+              <input type="text" name="col_length_{{.}}" class="form-control form-control-sm tx-len-input" autocomplete="off" aria-label="Length or precision">
+              {{if $.Body.ValueListTypes}}
+              {{/* ENUM/SET members share the Length cell rather than adding a
+                   column to an already-wide grid. One value per line; ignored
+                   for every other type. */}}
+              <textarea name="col_values_{{.}}" class="form-control form-control-sm tx-values-input mt-1" rows="1"
+                        placeholder="{{join $.Body.ValueListTypes "/"}} values"
+                        aria-label="{{join $.Body.ValueListTypes " or "}} values, one per line"></textarea>
+              {{end}}
+            </td>
+            <td class="text-center"><input type="checkbox" name="col_nullable_{{.}}" value="1" checked aria-label="Nullable"></td>
+            <td>
+              <select name="default_mode_{{.}}" class="form-select form-select-sm" aria-label="Default kind">
+                <option value="none">None</option>
+                <option value="null">NULL</option>
+                <option value="current">CURRENT_TIMESTAMP</option>
+                <option value="custom">As defined…</option>
+              </select>
+            </td>
+            <td><input type="text" name="default_value_{{.}}" class="form-control form-control-sm" autocomplete="off" aria-label="Default value"></td>
+            <td><input type="text" name="col_comment_{{.}}" class="form-control form-control-sm" autocomplete="off" aria-label="Column comment"></td>
+            <td class="text-center"><input type="checkbox" name="col_pk_{{.}}" value="1" aria-label="Primary key"></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div class="d-flex gap-2 mb-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary" x-on:click="addRow">{{icon "add"}} Add row</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" x-on:click="removeRow">Remove last row</button>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-sm">{{icon "new"}} Create table</button>
+  </form>
+  {{else}}
+  <p class="text-muted">Not available on this TableX.</p>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

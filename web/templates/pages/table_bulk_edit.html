@@ -1,0 +1,42 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+{{$body := .}}
+<div class="tx-page">
+  <h2 class="tx-h2">
+    {{if eq .Mode "copy"}}{{icon "copy"}} Copy {{len .Rows}} row(s){{else}}{{icon "edit"}} Edit {{len .Rows}} row(s){{end}} · {{$sc.Table}}
+  </h2>
+  {{if eq .Mode "copy"}}
+  <p class="text-muted small">Each row below is inserted as a NEW row. Auto-increment
+    columns are left blank so the engine assigns fresh values; change anything that
+    must be unique before saving.</p>
+  {{end}}
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" data-tx-guard="your changes to these rows">
+    {{template "csrf" $.CSRF}}
+    {{/* mode is fixed at RENDER time, not chosen by the button that submits.
+         The user already picked Edit or Copy in the browse grid, and a form that
+         could switch between updating and duplicating on submit would be one
+         mis-click from doubling a table. bulk_count bounds the server's loop. */}}
+    <input type="hidden" name="mode" value="{{.Mode}}">
+    <input type="hidden" name="bulk_count" value="{{len .Rows}}">
+    {{range .Rows}}
+    <fieldset class="tx-bulk-row">
+      <legend class="tx-bulk-legend">{{.Label}}</legend>
+      {{if and (eq $body.Mode "edit") .WhereToken}}<input type="hidden" name="{{.Prefix}}where" value="{{.WhereToken}}">{{end}}
+      <div class="table-responsive">
+      {{template "edit_fields" .}}
+      </div>
+    </fieldset>
+    {{end}}
+    <div class="tx-sql-actions">
+      {{if $.Allow.Write}}
+      <button type="submit" class="btn btn-primary btn-sm">
+        {{if eq .Mode "copy"}}{{icon "insert"}} Insert {{len .Rows}} copy(-ies){{else}}{{icon "check"}} Save {{len .Rows}} row(s){{end}}
+      </button>
+      {{end}}
+      <a class="btn btn-tx btn-sm" href="{{.BrowseURL}}" hx-get="{{.BrowseURL}}" hx-push-url="true">Cancel</a>
+    </div>
+  </form>
+</div>
+{{end}}
+{{- end}}

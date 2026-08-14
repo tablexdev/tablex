@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        TableX's priorities, in order: keep the classic UI, stay one
+        self-contained binary, minimal/clean/secure code, MIT. Requests that
+        fit those tend to land; requests that fight them tend not to.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that TableX makes hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should happen instead? If another admin tool has this feature, describe how it works there.
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engines involved
+      multiple: true
+      options:
+        - MySQL
+        - MariaDB
+        - PostgreSQL
+        - SQLite
+        - all / not engine-specific

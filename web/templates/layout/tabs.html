@@ -1,0 +1,22 @@
+{{/* The container is ALWAYS emitted, hidden when there are no tabs (a terminal
+     page like the no-JS confirmation interstitial): the strip carries its own
+     background/border/padding, so an empty-but-present container would leave a
+     bare bordered band. It must stay in the DOM (not be omitted) so the next
+     tabbed htmx navigation has a target to swap. The htmx fragment swaps this
+     WHOLE container out-of-band for the same reason. */}}
+{{define "tabs" -}}
+<div id="topmenucontainer" class="tx-topmenu-container menucontainer{{if not .Tabs}} d-none{{end}}">
+  <nav class="navbar tx-navbar">
+    <ul id="topmenu" class="nav tx-topmenu navbar-nav">{{template "tabs_inner" .}}</ul>
+  </nav>
+</div>
+{{- end}}
+
+{{define "tabs_inner" -}}
+{{range .Tabs -}}
+<li class="nav-item{{if .Active}} active{{end}}">
+  <a class="nav-link text-nowrap{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}
+     href="{{.URL}}" hx-get="{{.URL}}" hx-push-url="true">{{if .Icon}}{{icon .Icon}} {{end}}{{.Label}}</a>
+</li>
+{{- end}}
+{{- end}}

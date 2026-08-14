@@ -1,0 +1,106 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "export"}} Export {{if eq .Level "table"}}· {{$sc.Table}}{{else if eq .Level "server"}}· Server{{else}}· {{$sc.DB}}{{end}}</h2>
+  <form method="post" action="{{.PostURL}}" class="tx-export-form" x-data="exportForm">
+    {{template "csrf" $.CSRF}}
+    {{/* A "with selected" export: the grid's row-identity tokens ride along so
+         the download POST — which is the one that also carries the format and
+         contents choices — restricts its DATA phase to exactly these rows. The
+         server re-validates every token against live introspection; these are
+         opaque here. */}}
+    {{range .SelectedRows}}<input type="hidden" name="rows[]" value="{{.}}">{{end}}
+    <div class="card tx-card tx-maxw-lg">
+      <div class="card-header tx-card-header">Options</div>
+      <div class="card-body">
+        {{with .SelectedRows}}
+        <div class="alert tx-alert tx-alert-info py-1">
+          {{icon "check"}} Exporting {{len .}} selected row(s). Structure, if included, is the whole table's.
+        </div>
+        {{end}}
+        {{if eq .Level "server"}}
+        <input type="hidden" name="format" value="sql">
+        <p class="text-muted small mb-2">Dumps every non-system database as a single SQL script.
+          {{- with .ServerNote}} {{.}}{{end}}</p>
+        {{else}}
+        <div class="mb-3">
+          <div class="fw-bold mb-1">Format</div>
+          <label class="me-3"><input type="radio" name="format" value="sql" x-model="format" checked> {{icon "sql-file"}} SQL</label>
+          <label class="me-3"><input type="radio" name="format" value="csv" x-model="format"> {{icon "csv"}} CSV</label>
+          <label class="me-3"><input type="radio" name="format" value="json" x-model="format"> {{icon "json-file"}} JSON</label>
+          <label class="me-3"><input type="radio" name="format" value="xml" x-model="format"> {{icon "json-file"}} XML</label>
+          <p class="text-muted small mt-1 mb-0">JSON and XML are for data exchange (all columns, NULL kept distinct from an empty value) and are export-only; re-import a table via SQL or CSV.</p>
+          {{if ne .Level "table"}}<p class="text-muted small mt-1 mb-0" x-show="format === 'csv'">A multi-table CSV is export-only (its per-table sections cannot be re-imported); to re-import CSV data, export one table at a time.</p>{{end}}
+        </div>
+        {{end}}
+        <div class="mb-2" x-show="isSQL">
+          <div class="fw-bold mb-1">Contents (SQL)</div>
+          <label class="me-3"><input type="checkbox" name="structure" checked> Structure</label>
+          <label class="me-3"><input type="checkbox" name="data" checked> Data</label>
+          <label class="me-3"><input type="checkbox" name="drop"> Add DROP statements</label>
+        </div>
+        {{with .Objects}}
+        {{/* Per-object selection. Nothing checked means EVERYTHING — the
+             pre-existing behaviour — so the boxes start checked and the note
+             says what an empty selection does. The value is a length-prefixed
+             (schema, table) pair: an identifier may contain any character, so
+             "schema.table" would be ambiguous, and two parallel arrays would
+             misalign the moment one box is unchecked. */}}
+        <div class="mb-3">
+          <div class="fw-bold mb-1">Tables ({{len .}})</div>
+          <div class="tx-object-picker" x-data="objectPicker">
+            <div class="mb-1">
+              {{/* Two methods rather than one taking a boolean: the Alpine CSP
+                   build evaluates member access and bare method references, not
+                   calls with arguments. */}}
+              <button type="button" class="btn btn-link btn-sm p-0 me-2" x-on:click="selectAll">Select all</button>
+              <button type="button" class="btn btn-link btn-sm p-0" x-on:click="selectNone">Select none</button>
+            </div>
+            {{range .}}
+            <label class="tx-object-row">
+              <input type="checkbox" name="objects[]" value="{{.Token}}" checked>
+              {{if .Schema}}<span class="text-muted">{{.Schema}}.</span>{{end}}{{.Table}}
+            </label>
+            {{end}}
+          </div>
+          <p class="text-muted small mt-1 mb-0">With none checked, every table is exported.</p>
+        </div>
+        {{end}}
+        {{if eq .Level "table"}}
+        {{/* Table scope only: "the first 100 rows of every table" is not a
+             coherent database export. Blank means every row. */}}
+        <div class="mb-3">
+          <div class="fw-bold mb-1">Rows</div>
+          <label class="me-3">Limit
+            <input type="number" name="row_limit" min="1" step="1" placeholder="all"
+                   class="form-control form-control-sm d-inline-block tx-rowrange" aria-label="Maximum rows to export">
+          </label>
+          <label class="me-3">Starting at row
+            <input type="number" name="row_offset" min="0" step="1" placeholder="0"
+                   class="form-control form-control-sm d-inline-block tx-rowrange" aria-label="Row offset to start from">
+          </label>
+          <p class="text-muted small mt-1 mb-0">Leave the limit blank to export every row. A SELECT without an ORDER BY has no
+            defined row order, so "the first N rows" is dependable but a given offset need not return the same rows twice —
+            this is a sampling aid, not a pagination scheme.</p>
+        </div>
+        {{end}}
+        {{/* A compressed FILE, not a compressed transfer: the response is
+             already gzipped in flight when the browser asks for it, but the
+             browser undoes that before saving. This is what puts a .gz on
+             disk — and the importer takes it straight back. */}}
+        <div class="mb-2">
+          <div class="fw-bold mb-1">Compression</div>
+          <label class="me-3"><input type="radio" name="compression" value="none" checked> None</label>
+          <label class="me-3"><input type="radio" name="compression" value="gzip"> gzip (.gz)</label>
+          <p class="text-muted small mt-1 mb-0">A gzipped dump can be re-imported directly — Import detects it from the file itself.</p>
+        </div>
+      </div>
+      <div class="card-footer">
+        <button type="submit" class="btn btn-primary btn-sm">{{icon "download"}} Export &amp; download</button>
+      </div>
+    </div>
+  </form>
+</div>
+{{end}}
+{{- end}}

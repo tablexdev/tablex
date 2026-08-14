@@ -1,0 +1,46 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon (printf "%ss" .Kind)}} {{.Title}}</h2>
+
+  {{/* The definition is the user's own DDL, run under their own credentials —
+       the same bargain as the SQL console. The server still checks it lexes as
+       exactly one CREATE of this page's object kind before running it.
+       BOTH gates, for that reason: creating the object is DDL, and the body it
+       wraps is unconstrained SQL, so saveProgram refuses under allow_console =
+       false as well. Offering a form the server will refuse is worse than not
+       offering it. */}}
+  {{if and $.Allow.DDL $.Allow.Console}}
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" data-tx-guard="your edits to this program">
+    {{template "csrf" $.CSRF}}
+    <input type="hidden" name="action" value="save">
+    {{if .Name}}
+    <input type="hidden" name="name" value="{{.Name}}">
+    <input type="hidden" name="i" value="{{.Index}}">
+    {{end}}
+
+    {{with .Note}}
+    <div class="alert tx-alert tx-alert-warning" role="alert">
+      <div class="tx-alert-msg">{{icon "warning"}} {{.}}</div>
+    </div>
+    {{end}}
+
+    <div class="tx-sql-editor-wrap">
+      <textarea name="definition" class="tx-sql-editor" rows="16" spellcheck="false"
+                aria-label="{{.Title}} definition">{{.Definition}}</textarea>
+    </div>
+    <div class="tx-sql-actions">
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "check"}} Save</button>
+      <a href="{{.CancelURL}}" hx-get="{{.CancelURL}}" hx-push-url="true" class="btn btn-tx btn-sm">Cancel</a>
+      <span class="text-muted small">Runs under your own database credentials.</span>
+    </div>
+  </form>
+  {{else}}
+  <p class="text-muted">Not available on this TableX.</p>
+  <div class="tx-sql-actions">
+    <a href="{{.CancelURL}}" hx-get="{{.CancelURL}}" hx-push-url="true" class="btn btn-tx btn-sm">Back</a>
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

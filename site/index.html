@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TableX — single-binary web admin for MySQL, MariaDB, PostgreSQL and SQLite</title>
+<meta name="description" content="TableX brings the classic web database-admin experience to MySQL, MariaDB, PostgreSQL and SQLite in one self-contained, MIT-licensed Go binary. No PHP, no Node, no dependencies.">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c2530; --muted: #5b6b7b; --line: #dbe2e8;
+    --accent: #235a81; --accent-2: #d96e26; --code-bg: #f4f6f8; --card: #f9fafb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161d; --fg: #dbe4ec; --muted: #8fa1b3; --line: #263341;
+      --accent: #6ea8d0; --accent-2: #e08a4a; --code-bg: #1a232d; --card: #161f28;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+  header.hero { padding: 4rem 0 2.5rem; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 2.4rem; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h1 .x { color: var(--accent-2); }
+  .tagline { font-size: 1.2rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 42rem; }
+  h2 { font-size: 1.4rem; margin: 2.8rem 0 .8rem; letter-spacing: -.01em; }
+  p { max-width: 46rem; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .btns { display: flex; gap: .75rem; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: .55rem 1.1rem; border-radius: 6px;
+    border: 1px solid var(--line); text-decoration: none; font-weight: 600;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cmd {
+    display: flex; align-items: stretch; margin: .6rem 0 1.1rem;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  .cmd pre {
+    flex: 1; margin: 0; padding: .7rem .9rem; background: var(--code-bg);
+    overflow-x: auto; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .cmd button {
+    border: 0; border-left: 1px solid var(--line); background: var(--card);
+    color: var(--muted); padding: 0 .9rem; cursor: pointer; font-size: .85rem;
+  }
+  .cmd button:hover { color: var(--fg); }
+  .oslabel { font-weight: 600; margin: 1.1rem 0 0; }
+  pre.block {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .8rem 1rem; overflow-x: auto;
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin: 1.2rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; background: var(--card); }
+  .card h3 { margin: 0 0 .4rem; font-size: 1.02rem; }
+  .card p { margin: 0; font-size: .92rem; color: var(--muted); }
+  footer { border-top: 1px solid var(--line); margin-top: 3.5rem; padding-top: 1.4rem;
+    font-size: .9rem; color: var(--muted); display: flex; gap: 1.2rem; flex-wrap: wrap; }
+  .note { font-size: .9rem; color: var(--muted); border-left: 3px solid var(--line); padding-left: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <h1>Table<span class="x">X</span></h1>
+    <p class="tagline">The classic database-admin experience for <strong>MySQL, MariaDB, PostgreSQL and SQLite</strong> — one self-contained binary, no PHP, no Node, no runtime dependencies. Open source, MIT.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/tablexdev/tablex">GitHub</a>
+      <a class="btn" href="https://github.com/tablexdev/tablex/releases/latest">Download</a>
+      <a class="btn" href="https://github.com/tablexdev/tablex/pkgs/container/tablex">Docker image</a>
+    </div>
+  </header>
+
+  <h2 id="install">Install</h2>
+
+  <p class="oslabel">Linux / macOS</p>
+  <div class="cmd">
+    <pre><code>curl -fsSL https://tablex.dev/install.sh | sh</code></pre>
+    <button type="button" data-copy="curl -fsSL https://tablex.dev/install.sh | sh">copy</button>
+  </div>
+
+  <p class="oslabel">Windows (PowerShell)</p>
+  <div class="cmd">
+    <pre><code>irm https://tablex.dev/install.ps1 | iex</code></pre>
+    <button type="button" data-copy="irm https://tablex.dev/install.ps1 | iex">copy</button>
+  </div>
+
+  <p class="oslabel">Windows (cmd.exe)</p>
+  <div class="cmd">
+    <pre><code>curl -fsSLO https://tablex.dev/install.cmd &amp;&amp; install.cmd</code></pre>
+    <button type="button" data-copy="curl -fsSLO https://tablex.dev/install.cmd &amp;&amp; install.cmd">copy</button>
+  </div>
+
+  <p>Then run <code>tablex</code> and open <a href="http://localhost:8080">http://localhost:8080</a>.
+  The scripts verify every download against the release's <code>SHA256SUMS</code>,
+  and — when the GitHub CLI is installed and logged in — GitHub's build-provenance
+  attestation over that file, refusing on any mismatch —
+  read them first if you like: <a href="install.sh">install.sh</a> ·
+  <a href="install.ps1">install.ps1</a> · <a href="install.cmd">install.cmd</a>.</p>
+
+  <p>Prefer a package? Every <a href="https://github.com/tablexdev/tablex/releases/latest">release</a>
+  ships <code>.deb</code> and <code>.rpm</code> packages plus archives for six
+  OS/architecture targets. Or use the container image:</p>
+  <div class="cmd">
+    <pre><code>docker run -p 8080:8080 ghcr.io/tablexdev/tablex</code></pre>
+    <button type="button" data-copy="docker run -p 8080:8080 ghcr.io/tablexdev/tablex">copy</button>
+  </div>
+
+  <p class="note">The binaries are open-source builds without paid OS signing
+  certificates: macOS Gatekeeper and Windows SmartScreen may warn on first
+  launch. The <a href="#verify">verification steps</a> below are the stronger
+  check — they prove a download came from this project's release pipeline.</p>
+
+  <h2 id="databases">One tool, four engines</h2>
+  <table>
+    <thead><tr><th>Engine</th><th>Supported</th><th>Driver</th></tr></thead>
+    <tbody>
+      <tr><td>MySQL</td><td>8.0.13 and newer</td><td>pure-Go, no client libraries needed</td></tr>
+      <tr><td>MariaDB</td><td>10.2.7 and newer</td><td>pure-Go, no client libraries needed</td></tr>
+      <tr><td>PostgreSQL</td><td>13 and newer</td><td>pure-Go, no client libraries needed</td></tr>
+      <tr><td>SQLite</td><td>bundled</td><td>pure-Go, works on a plain file</td></tr>
+    </tbody>
+  </table>
+
+  <div class="cards">
+    <div class="card"><h3>The classic UI</h3><p>A familiar layout, navigation and workflow inspired by classic admin tools like phpMyAdmin — browse, query, import, export, users, privileges — modernized carefully, never degraded.</p></div>
+    <div class="card"><h3>One static binary</h3><p>Assets embedded, cross-compiled for Linux, macOS and Windows on amd64 and arm64. Download, run, done.</p></div>
+    <div class="card"><h3>Security first</h3><p>CSRF-protected everywhere, strict CSP without unsafe-eval, parameterized SQL, credentials never persisted or logged.</p></div>
+    <div class="card"><h3>Honest exports</h3><p>Dumps are round-trip tested in CI: export, drop, re-import, compare — against live MySQL, MariaDB and PostgreSQL servers.</p></div>
+  </div>
+
+  <h2 id="verify">Verify a download</h2>
+  <p>Each release publishes a <code>SHA256SUMS</code> file that covers every
+  artifact, signed keylessly with cosign and attested by GitHub. Three
+  independent checks:</p>
+  <pre class="block"><code># 1. Checksums (after downloading SHA256SUMS next to your artifact)
+sha256sum -c SHA256SUMS --ignore-missing
+
+# 2. Cosign signature, bound to the release workflow's identity
+cosign verify-blob \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'https://github.com/tablexdev/tablex/.github/workflows/release.yml@.*' \
+  --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+  SHA256SUMS
+
+# 3. GitHub build-provenance attestation
+gh attestation verify SHA256SUMS --repo tablexdev/tablex \
+  --signer-workflow tablexdev/tablex/.github/workflows/release.yml</code></pre>
+  <p class="muted">The install scripts do #1 automatically and #3 when the
+  GitHub CLI is available. Container images are signed the same way:</p>
+  <pre class="block"><code>cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'https://github.com/tablexdev/tablex/.github/workflows/release.yml@.*' \
+  ghcr.io/tablexdev/tablex:&lt;tag&gt;</code></pre>
+
+  <footer>
+    <span>MIT licensed</span>
+    <a href="https://github.com/tablexdev/tablex">Source</a>
+    <a href="https://github.com/tablexdev/tablex/releases">Releases</a>
+    <a href="https://github.com/tablexdev/tablex/blob/master/SECURITY.md">Security policy</a>
+    <a href="https://github.com/tablexdev/tablex/blob/master/CHANGELOG.md">Changelog</a>
+  </footer>
+</main>
+<script>
+  document.querySelectorAll('button[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(btn.getAttribute('data-copy')).then(function () {
+        btn.textContent = 'copied';
+        setTimeout(function () { btn.textContent = 'copy'; }, 1500);
+      });
+    });
+  });
+</script>
+</body>
+</html>

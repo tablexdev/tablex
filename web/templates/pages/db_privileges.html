@@ -1,0 +1,110 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "privileges"}} Privileges · {{if .RoutineName}}{{.RoutineName}}{{else if .IsTable}}{{.Scope.Table}}{{else}}{{.Scope.DB}}{{end}}</h2>
+  {{if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>{{end}}
+  {{if not .CanManage}}<p class="text-muted small">Grants are read-only here; grant editing is run via the SQL console.</p>{{end}}
+
+  {{if and .Users (not .IsTable) (not .RoutineName)}}
+  <h3 class="tx-section-title">{{icon "user"}} Accounts</h3>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">User</th><th scope="col">Host</th><th scope="col">Login</th><th scope="col">Attributes</th></tr></thead>
+      <tbody>
+        {{range .Users}}
+        <tr>
+          <td class="tx-tbl-name">{{icon "user"}} {{.Name}}</td>
+          <td class="text-muted">{{default .Host "—"}}</td>
+          <td>{{yesno .CanLogin}}</td>
+          <td class="text-muted">{{default .Attributes "—"}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Privileges}}
+  <h3 class="tx-section-title">{{icon "privileges"}} Grants{{if .RoutineName}} on this routine{{else if .IsTable}} on this table{{else}} on this database{{end}}</h3>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results">
+      <thead><tr><th scope="col">User</th>{{if not .IsTable}}<th scope="col">Object</th>{{end}}{{if .ShowColumnScope}}<th scope="col">Column</th>{{end}}<th scope="col">Privilege</th><th scope="col">Grantable</th>{{if .CanManage}}<th scope="col" class="text-center">Action</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Privileges}}
+        <tr>
+          <td class="tx-tbl-name">{{icon "user"}} {{.User}}{{if .Host}}@{{.Host}}{{end}}</td>
+          {{if not $.Body.IsTable}}<td class="text-muted"><code>{{.Object}}</code></td>{{end}}
+          {{if $.Body.ShowColumnScope}}<td>{{if .Column}}<code>{{.Column}}</code>{{else}}<span class="text-muted">whole table</span>{{end}}</td>{{end}}
+          <td>{{.Privilege}}</td>
+          <td>{{yesno .Grantable}}</td>
+          {{if $.Body.CanManage}}
+          <td class="text-center">
+            {{$grantee := .User}}{{if .Host}}{{$grantee = printf "%s@%s" .User .Host}}{{end}}
+            {{$what := .Privilege}}{{if .Column}}{{$what = printf "%s on column %s" .Privilege .Column}}{{end}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $.Body.PostURL "Action" "revoke"
+              "Fields" (dict "grantee" $grantee "priv" .Privilege "column" .Column)
+              "Confirm" (printf "Revoke %s from %s?" $what $grantee)
+              "Label" "Revoke" "Class" "d-inline")}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{/* Show the empty-state when there are no grants. On the DB page the
+       Accounts section covers a populated .Users, so suppress the message there
+       when accounts exist; on a table page .Users only feeds the grant form's
+       grantee list, so it must not gate the message. */}}
+  {{if and (not .Privileges) (or .IsTable .RoutineName (not .Users))}}{{template "empty_state" .Empty}}{{end}}
+
+  {{if .CanManage}}
+  <h3 class="tx-section-title">{{icon "add"}} Grant privileges</h3>
+  <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="card tx-card tx-maxw-lg">
+    <div class="card-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="grant">
+      <div class="row mb-2">
+        <label for="grant_grantee" class="col-sm-4 col-form-label">Grantee</label>
+        <div class="col-sm-8">
+          <select name="grantee" id="grant_grantee" class="form-select form-select-sm" required>
+            <option value="">— choose an account —</option>
+            {{if .HasPublicGrantee}}<option value="PUBLIC">PUBLIC (all roles)</option>{{end}}
+            {{range .Users}}<option value="{{.Name}}{{if $.Body.HasHost}}@{{.Host}}{{end}}">{{.Name}}{{if $.Body.HasHost}}@{{.Host}}{{end}}</option>{{end}}
+          </select>
+          {{if not .Users}}<div class="form-text">The account listing is unavailable; grants still run under your own authority via the SQL console.</div>{{end}}
+        </div>
+      </div>
+      <div class="row mb-2">
+        <span class="col-sm-4 col-form-label">Privileges</span>
+        <div class="col-sm-8 d-flex flex-wrap gap-3 align-items-center">
+          {{range .Privs}}<label class="mb-0"><input type="checkbox" name="privs" value="{{.}}"> {{.}}</label>{{end}}
+        </div>
+      </div>
+      {{if .ColumnPrivs}}
+      <div class="row mb-2">
+        <label for="grant_columns" class="col-sm-4 col-form-label">Columns <span class="text-muted fw-normal">(optional)</span></label>
+        <div class="col-sm-8">
+          <select name="columns" id="grant_columns" class="form-select form-select-sm" multiple size="6">
+            {{range .TableColumns}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+          <div class="form-text">Leave nothing selected to grant on the whole table. Only {{join .ColumnPrivs ", "}} accept a column list.</div>
+        </div>
+      </div>
+      {{end}}
+      <div class="row mb-2">
+        <span class="col-sm-4 col-form-label"></span>
+        <div class="col-sm-8">
+          <label class="mb-0"><input type="checkbox" name="with_grant" value="1"> WITH GRANT OPTION</label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">{{icon "add"}} Grant</button>
+    </div>
+  </form>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

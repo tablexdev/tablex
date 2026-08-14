@@ -1,0 +1,49 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "operations"}} Processes</h2>
+  {{if .Error}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} {{.Error}}</div></div>{{end}}
+  {{if and .Set .CanKill}}
+  {{/* The grid result_grid renders, plus one action column. Spelled out here
+       rather than parameterised into the shared partial: this is the only
+       read-only result set in the app with a per-row action, and the partial
+       also serves the SQL console and search, where a button would be wrong. */}}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover table-sm tx-results data">
+      <thead>
+        <tr>{{range .Set.Columns}}<th scope="col" class="{{if .Numeric}}text-end{{end}}">{{.Name}}{{if .DBType}} <span class="tx-col-type">{{lower .DBType}}</span>{{end}}</th>{{end}}<th scope="col" class="text-center">Action</th></tr>
+      </thead>
+      <tbody>
+        {{range $row := .Set.Rows}}
+        <tr>
+          {{range $i, $cell := $row}}{{$col := index $.Body.Set.Columns $i}}<td class="tx-cell{{if $col.Numeric}} text-end{{end}}{{if $cell.Null}} tx-null{{end}}">
+            {{- if $cell.Null}}<em class="tx-null-label">NULL</em>{{else if $cell.Binary}}<span class="text-muted">{{$cell.Str}}</span>{{else}}{{truncate 200 $cell.Str}}{{end -}}
+          </td>{{end}}
+          <td class="text-center">
+            {{/* No id, no button: a row the listing cannot address is one the
+                 handler would refuse anyway. */}}
+            {{$pid := $.Body.KillID $row}}
+            {{if $pid}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $.Body.PostURL "Action" "kill"
+              "Fields" (dict "pid" $pid)
+              "Confirm" (printf "Terminate session %s? Any transaction it holds is rolled back." $pid)
+              "Label" "Kill" "Class" "d-inline")}}
+            {{end}}
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="{{add (len .Set.Columns) 1}}" class="text-muted text-center py-2">Empty result set.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if .Set.Truncated}}<div class="alert tx-alert tx-alert-warning py-1">{{icon "warning"}} Showing the first {{len .Set.Rows}} rows; the result was truncated.</div>{{end}}
+  {{else if .Set}}
+    {{template "result_grid" .Set}}
+  {{else if not .Error}}
+  {{template "empty_state" (default .Empty "No active processes.")}}
+  {{end}}
+</div>
+{{end}}
+{{- end}}

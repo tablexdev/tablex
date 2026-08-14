@@ -1,0 +1,53 @@
+{{/* One row's editable fields, as a table. Shared by the single-row edit/insert
+     form and the bulk (multi-row) form, which is why it lives in layout/ — page
+     templates are parsed onto separate clones of this base, so a partial defined
+     inside one page is invisible to the other.
+
+     Dot is an editRowVM: Prefix, Mode ("edit" | "insert") and Fields. Every
+     input name is prefixed, so N of these can coexist in one form without
+     colliding; the prefix is "" for the single-row form, which keeps its field
+     names exactly as they were. */}}
+{{define "edit_fields"}}
+{{$row := .}}
+<table class="tx-edit-table">
+  <thead><tr><th scope="col">Column</th><th scope="col">Type</th><th scope="col">Null</th><th scope="col">Value</th></tr></thead>
+  <tbody>
+    {{range .Fields}}
+    <tr>
+      {{/* A row header, not a plain cell: it names the row for the value control
+           beside it, which is what lets a screen reader read this as a table of
+           columns rather than a grid of unlabelled boxes. The aria-labels below
+           still carry the accessible NAME of each control — header inference is
+           extra context, not a substitute for a name. */}}
+      <th scope="row" class="tx-tbl-name">{{if .Column.IsPrimaryKey}}{{icon "key"}} {{end}}{{.Column.Name}}</th>
+      <td class="tx-col-type">{{.Column.DataType}}{{if .Column.IsAutoIncrement}} <span class="text-muted">auto</span>{{end}}{{if .Column.IsGenerated}} <span class="text-muted">generated</span>{{end}}</td>
+      <td class="text-center">
+        {{if and .Column.Nullable (not .ReadOnly)}}<input type="checkbox" name="{{$row.Prefix}}null_{{.Column.Name}}" title="Set NULL" aria-label="Set {{.Column.Name}} to NULL"{{if .IsNull}} checked{{end}}>{{else}}<span class="text-muted">—</span>{{end}}
+      </td>
+      <td>
+        {{if .ReadOnly}}
+          <span class="text-muted tx-col-type" title="Generated column: computed by the database, left unchanged on save">{{if .IsNull}}NULL{{else}}{{.Value}}{{end}}</span>
+        {{else if .IsBinary}}
+          <span class="text-muted tx-col-type" title="Binary data is shown read-only and left unchanged on save">{{.Value}}</span>
+        {{else}}
+          {{- /* Edit mode carries each field's original state so the server
+                 writes only changed columns: rendering is lossy for some
+                 types (timestamptz offsets, fractional zeros), and blindly
+                 re-writing every field would corrupt untouched values. */ -}}
+          {{if eq $row.Mode "edit"}}
+            <input type="hidden" name="{{$row.Prefix}}orig_{{.Column.Name}}" value="{{.Value}}">
+            {{if .IsNull}}<input type="hidden" name="{{$row.Prefix}}orignull_{{.Column.Name}}" value="1">{{end}}
+          {{end}}
+          {{if or (hasPrefix .Column.BaseType "text") (hasPrefix .Column.BaseType "json") (contains .Column.DataType "text")}}
+          <textarea name="{{$row.Prefix}}v_{{.Column.Name}}" class="form-control form-control-sm" rows="2" aria-label="Value for {{.Column.Name}}">{{.Value}}</textarea>
+          {{else}}
+          <input type="text" name="{{$row.Prefix}}v_{{.Column.Name}}" class="form-control form-control-sm" value="{{.Value}}" autocomplete="off" aria-label="Value for {{.Column.Name}}"
+            {{if .Column.IsAutoIncrement}}placeholder="(auto)"{{end}}>
+          {{end}}
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

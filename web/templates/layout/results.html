@@ -1,0 +1,22 @@
+{{/* result_grid renders a read-only *driver.ResultSet (SQL console, search). */}}
+{{define "result_grid" -}}
+{{if .Columns}}
+<div class="table-responsive">
+  <table class="table table-striped table-hover table-sm tx-results data">
+    <thead>
+      <tr>{{range .Columns}}<th scope="col" class="{{if .Numeric}}text-end{{end}}">{{.Name}}{{if .DBType}} <span class="tx-col-type">{{lower .DBType}}</span>{{end}}</th>{{end}}</tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>{{range $i, $cell := .}}{{$col := index $.Columns $i}}<td class="tx-cell{{if $col.Numeric}} text-end{{end}}{{if $cell.Null}} tx-null{{end}}">
+        {{- if $cell.Null}}<em class="tx-null-label">NULL</em>{{else if $cell.Binary}}<span class="text-muted">{{$cell.Str}}</span>{{else}}{{truncate 200 $cell.Str}}{{end -}}
+      </td>{{end}}</tr>
+      {{else}}
+      <tr><td colspan="{{len .Columns}}" class="text-muted text-center py-2">Empty result set.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{if .Truncated}}<div class="alert tx-alert tx-alert-warning py-1">{{icon "warning"}} Showing the first {{len .Rows}} rows; the result was truncated.</div>{{end}}
+{{end}}
+{{- end}}

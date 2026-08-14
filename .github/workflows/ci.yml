@@ -1,0 +1,716 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  # Weekly, so a new CVE against an unchanged master is still found: govulncheck
+  # fetches its database at run time, and nothing else would ever re-run it.
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+# One run per ref. A superseded push on a branch is cancelled; the DEFAULT
+# branch and the scheduled run are not, so a green tick there always corresponds
+# to a completed run.
+#
+# Derived from the repository's own default branch rather than the literal
+# "master". Hardcoding it inverts the rule the moment the branch is renamed: on
+# a repo defaulting to "main" the condition is always true, so the default
+# branch's runs become cancellable — and a cancelled run is `completed` with
+# conclusion `cancelled`, which release.yml's green-CI gate reads as "CI for
+# this SHA failed" on a tree that was never broken. Schedule payloads carry no
+# `repository` object, so the derived comparison would misfire there — the
+# event_name guard keeps the cron run non-cancellable outright.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Live engines for the round-trip integration tests (live_roundtrip_test.go).
+    # The TABLEX_TEST_* env vars gate those tests; without them (e.g. local runs
+    # with no Docker) they skip and the SQLite-backed suite still runs fully.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: tablex_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptablex_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: tablex_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      postgres:
+        # PostgreSQL 18: 17 lacks the VIRTUAL generated-column support the
+        # round-trip test needs, so on 17 that case silently skips.
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: tablex_test
+        ports:
+          - 5432:5432
+        # Probe over TCP (-h 127.0.0.1), not the init container's Unix socket,
+        # so the check does not race the bootstrap temp server.
+        options: >-
+          --health-cmd="pg_isready -U postgres -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      postgres13:
+        # PostgreSQL 13 is the documented feature floor. Running the live suite
+        # against both 13 and 18 exercises the version-dependent catalog queries
+        # (to_jsonb column reads, collation/attstattarget shapes) on the floor and
+        # the current release; newer-only seed features version-gate themselves.
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: tablex_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      TABLEX_TEST_MYSQL_HOST: 127.0.0.1
+      TABLEX_TEST_MYSQL_PORT: "3306"
+      TABLEX_TEST_MYSQL_USER: root
+      TABLEX_TEST_MYSQL_PASSWORD: tablex_test
+      TABLEX_TEST_MARIADB_HOST: 127.0.0.1
+      TABLEX_TEST_MARIADB_PORT: "3307"
+      TABLEX_TEST_MARIADB_USER: root
+      TABLEX_TEST_MARIADB_PASSWORD: tablex_test
+      TABLEX_TEST_POSTGRES_HOST: 127.0.0.1
+      TABLEX_TEST_POSTGRES_PORT: "5432"
+      TABLEX_TEST_POSTGRES_USER: postgres
+      TABLEX_TEST_POSTGRES_PASSWORD: tablex_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+
+      - name: Module integrity
+        # go mod verify checks the downloaded modules against go.sum (a
+        # tampered module graph fails the build); tidy -diff fails when
+        # go.mod/go.sum are not tidy without rewriting them.
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Format check
+        run: make fmt-check
+
+      - name: Vet
+        run: make vet
+
+      - name: Test
+        # -v so the floors step below can count "--- PASS" lines (go test prints
+        # them only under -v); pipefail so the step's exit status is go test's,
+        # not tee's — without it a failing test would still exit 0. -count=1
+        # because the floors COUNT those PASS lines: a cache replay prints
+        # none and would zero every floor.
+        run: |
+          set -o pipefail
+          make cover GOTESTFLAGS="-race -v -count=1" | tee test.log
+
+      - name: Coverage floor
+        # The floor and its rationale live in the Makefile (cover-floor) so the
+        # local command and the CI gate share one definition.
+        run: make cover-floor
+
+      - name: Live-test floors (per engine)
+        # The live tests SKIP silently without their TABLEX_TEST_* vars, so a
+        # broken service would look green while testing nothing. The floors are
+        # per engine — a combined count would let one engine cover for another
+        # going dark — and each engine additionally requires its named
+        # round-trip canary, which catches "this engine never ran" regardless
+        # of how the count drifts. The token match is case-sensitive and
+        # unanchored on purpose: a verbose PASS line ends with a duration (so a
+        # $-anchor matches nothing), the engine token is not always a suffix
+        # (TestLiveMySQLExpressionDefault), and TestLiveMysqlDefinerMariaDB's
+        # lowercase Mysql counts only toward MariaDB. Floors are ratchets like
+        # the coverage floor: raise them when they are beaten, never lower
+        # them to make a red build green.
+        run: |
+          fail=0
+          check() {
+            n=$(grep -cE "^--- PASS: [A-Za-z0-9_]*$1" test.log || true)
+            echo "$1 live tests passed: $n (floor $2)"
+            if [ "$n" -lt "$2" ]; then
+              echo "::error::only $n $1 live tests passed (floor $2)"
+              fail=1
+            fi
+            if ! grep -q "^--- PASS: TestLiveRoundTrip$1 " test.log; then
+              echo "::error::canary TestLiveRoundTrip$1 did not pass"
+              fail=1
+            fi
+          }
+          check MySQL 38
+          check MariaDB 25
+          check Postgres 45
+          exit "$fail"
+
+      - name: Live round-trip (PostgreSQL 13 floor)
+        # The main Test step above runs the whole suite against PostgreSQL 18.
+        # Re-run just the PostgreSQL live tests against the 13 floor service so the
+        # version-dependent catalog queries and DDL are exercised on the oldest
+        # supported release too. -race is already covered by the PG18 run above.
+        # Same floor discipline as the step above; the floor sits below the PG18
+        # count because version-gated tests (VIRTUAL generated columns) skip
+        # on 13.
+        env:
+          TABLEX_TEST_POSTGRES_PORT: "5433"
+        run: |
+          set -o pipefail
+          go test -count=1 -v -run Postgres ./internal/server/ | tee pg13.log
+          n=$(grep -cE '^--- PASS: [A-Za-z0-9_]*Postgres' pg13.log || true)
+          echo "PostgreSQL live tests passed against the 13 floor: $n (floor 42)"
+          if [ "$n" -lt 42 ]; then
+            echo "::error::only $n PostgreSQL live tests passed against the 13 floor (floor 42)"
+            exit 1
+          fi
+          if ! grep -q '^--- PASS: TestLiveRoundTripPostgres ' pg13.log; then
+            echo "::error::canary TestLiveRoundTripPostgres did not pass against PostgreSQL 13"
+            exit 1
+          fi
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" ./cmd/tablex
+
+  test-386:
+    # EXECUTE (not just compile) the whole tree on a 32-bit build: int is 32
+    # bits there, so int64-sensitive arithmetic (browse pagination, the audit
+    # size cap, Atoi-shaped parses) only bites here. The suite runs everywhere
+    # it can — modernc.org/sqlite is pure Go, so even the SQLite-backed HTTP
+    # stack executes. No database services on purpose: the live tests skip,
+    # and no PASS floor applies to this job for exactly that reason.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: Test (GOARCH=386)
+        # -count=1: this job exists to EXECUTE the tree on 386, and a cached
+        # pass replayed from an earlier run executes nothing.
+        run: GOARCH=386 go test -count=1 ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Publishing-shaped jobs vouch for a tree, so they must not report green
+    # when that tree's tests failed. test-386, lint, front-end and
+    # oldest-engine-images stay parallel on purpose: they are independent gates in
+    # their own right, not reporters over build-test's result.
+    needs: build-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Validate the release container path (multi-stage build + distroless image)
+      # that the normal build/test job does not exercise.
+      - name: Build Docker image
+        run: docker build -t tablex:ci .
+      # Every other gate stops at "it builds" or "-version prints something".
+      # This one STARTS the shipped artifact: a distroless image with no shell
+      # has plenty of ways to build cleanly and still not serve — a missing
+      # embedded asset, a bad USER, an ENTRYPOINT that exits. Two independent
+      # assertions, because each can pass while the other fails: /healthz from
+      # OUTSIDE proves the published port really serves, and the HEALTHCHECK
+      # verdict proves the image's own self-probe works (it re-reads TABLEX_*
+      # and cannot see CMD flags, so it is quite capable of checking the wrong
+      # port and reporting unhealthy forever).
+      - name: Run the image and require a healthy container
+        run: |
+          docker run -d --name tablex-smoke -p 18080:8080 tablex:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::/healthz never answered from the running container"
+              docker logs tablex-smoke || true
+              exit 1
+            fi
+            sleep 1
+          done
+          body=$(curl -fsS http://127.0.0.1:18080/healthz)
+          test "$body" = "ok" || { echo "::error::/healthz said '$body', want 'ok'"; exit 1; }
+          # HEALTHCHECK starts after start-period and runs every 30s; give it
+          # room to report, and fail loudly on "unhealthy" rather than waiting.
+          for i in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' tablex-smoke)
+            case "$status" in
+              healthy) break ;;
+              unhealthy)
+                echo "::error::the container's own HEALTHCHECK reports unhealthy"
+                docker inspect -f '{{json .State.Health}}' tablex-smoke
+                exit 1 ;;
+            esac
+            if [ "$i" -eq 60 ]; then
+              echo "::error::HEALTHCHECK never left '$status'"
+              docker inspect -f '{{json .State.Health}}' tablex-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          docker rm -f tablex-smoke
+      # The release workflow pushes a linux/amd64+arm64 image. Build (not push)
+      # the same two platforms here so the arm64 half — cross-compiled by the
+      # --platform=$BUILDPLATFORM build stage, no QEMU involved — is proven on
+      # every push instead of for the first time during a tag.
+      - name: Build multi-arch image (no push)
+        run: |
+          docker buildx create --use
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION=0.0.0-ci .
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Same rule as docker: a vulnerability verdict for a tree whose tests
+    # failed is a verdict about nothing.
+    needs: build-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: govulncheck
+        run: |
+          # Pin the tool version for reproducibility (the Actions above are
+          # SHA-pinned); the vulnerability database is still fetched fresh at run.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-test
+    strategy:
+      matrix:
+        target:
+          - linux/amd64
+          - linux/arm64
+          - darwin/amd64
+          - darwin/arm64
+          - windows/amd64
+          - windows/arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: Build ${{ matrix.target }}
+        run: |
+          GOOS=${{ matrix.target }} && OS=${GOOS%/*} && ARCH=${GOOS#*/}
+          CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/tablex
+
+  lint:
+    # staticcheck catches a class the compiler and `go vet` do not: unused
+    # results, impossible conditions, misattached doc comments. Configured by
+    # staticcheck.conf at the repo root (ST1005 is off, and that file says why).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: staticcheck (via make lint)
+        run: |
+          # Pinned like the vulncheck tool: a lint gate that changes under you is
+          # a gate that fails on someone else's schedule. The gate itself is
+          # `make lint` so the local command and the CI job share one definition
+          # and cannot drift apart again.
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          make lint
+
+      - name: actionlint
+        # The workflows are the one part of this repo that CI could not previously
+        # check — and a broken workflow is invisible until the run it was supposed
+        # to perform silently does not happen. Added after exactly that: a
+        # last-minute edit to release.yml shipped a shell template whose braces
+        # collide with the expression syntax, because the linter had been run
+        # before the edit rather than after it.
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          actionlint
+
+  front-end:
+    # There is no JS test runner here on purpose (no Node in the build, no npm in
+    # the repo), so the front-end's guarantees are asserted from Go as content
+    # checks over the embedded files — see web/embed_test.go. What those cannot
+    # catch is a syntax error, which would take the whole UI out at once: every
+    # listener in app.js lives in a single IIFE. `node --check` is a parse, needs
+    # no dependencies, and closes exactly that gap.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Parse app.js
+        run: node --check web/static/js/app.js
+
+  oldest-engine-images:
+    # The oldest MySQL and MariaDB IMAGES TableX is exercised against — 8.0 and
+    # 10.6, which are NOT the documented feature floors (8.0.13 and 10.2.7).
+    # Those are older than any image published for these engines, so this job
+    # narrows the untested gap rather than closing it; see
+    # docs/database-drivers.md §4.4, which names the two senses of "floor".
+    # PostgreSQL is the one engine whose floor IS exercised exactly, by the
+    # postgres:13 service in build-test; this is the nearest half of that
+    # symmetry — the MySQL/MariaDB minimums were documented and never run at
+    # all, so an introspection query needing a newer catalog would only have
+    # been found by a user on an older server.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: tablex_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptablex_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: tablex_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      TABLEX_TEST_MYSQL_HOST: 127.0.0.1
+      TABLEX_TEST_MYSQL_PORT: "3306"
+      TABLEX_TEST_MYSQL_USER: root
+      TABLEX_TEST_MYSQL_PASSWORD: tablex_test
+      TABLEX_TEST_MARIADB_HOST: 127.0.0.1
+      TABLEX_TEST_MARIADB_PORT: "3307"
+      TABLEX_TEST_MARIADB_USER: root
+      TABLEX_TEST_MARIADB_PASSWORD: tablex_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: Live round-trip (oldest MySQL / MariaDB images — 8.0, 10.6)
+        # The live tests SKIP silently without their TABLEX_TEST_* vars, so a
+        # misconfigured job would look green while testing nothing. pipefail so
+        # the exit status is go test's, not tee's — the old combined floor of
+        # 20 had enough headroom for several tests to fail unnoticed. The
+        # "floor" below is a TEST-COUNT floor, unrelated to the engine version
+        # floors: one per engine with a named canary each (see the build-test
+        # floors step for the token-matching rationale); ratchets — raise when
+        # beaten, never lower to make a red build green.
+        run: |
+          set -o pipefail
+          go test -count=1 -v -run 'MySQL|MariaDB' ./internal/server/ | tee floors.log
+          fail=0
+          check() {
+            n=$(grep -cE "^--- PASS: [A-Za-z0-9_]*$1" floors.log || true)
+            echo "$1 live tests passed: $n (floor $2)"
+            if [ "$n" -lt "$2" ]; then
+              echo "::error::only $n $1 live tests passed (floor $2)"
+              fail=1
+            fi
+            if ! grep -q "^--- PASS: TestLiveRoundTrip$1 " floors.log; then
+              echo "::error::canary TestLiveRoundTrip$1 did not pass"
+              fail=1
+            fi
+          }
+          check MySQL 30
+          check MariaDB 25
+          exit "$fail"
+
+  test-cross-os:
+    # EXECUTE (not just compile) the whole suite on the two OSes the release
+    # ships binaries for but Linux CI never runs: path separators, file
+    # locking, timer resolution and process semantics all differ, and the
+    # cross-compile matrix proves none of them. Deliberately bare, mirroring
+    # test-386: no database services (the live tests skip without their
+    # TABLEX_TEST_* vars — setting one without a server would FAIL), no PASS
+    # floors (nothing live runs, so there is nothing to floor), and no make
+    # targets (the Makefile is POSIX-only and Windows runs pwsh).
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build
+        run: go build ./...
+
+  scripts-lint:
+    # The install scripts are shipped, executable documentation; lint them
+    # with the same rigor `node --check` gives app.js. shellcheck and pwsh
+    # are preinstalled on the runner; PSScriptAnalyzer is version-pinned like
+    # every other tool here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Shell syntax + shellcheck
+        run: |
+          sh -n install.sh
+          shellcheck --shell=sh install.sh
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser
+          $findings = Invoke-ScriptAnalyzer -Path ./install.ps1 -Severity Warning, Error
+          if ($findings) {
+            $findings | Format-Table RuleName, Line, Message -AutoSize | Out-String -Width 200 | Write-Host
+            exit 1
+          }
+
+  install-test:
+    # The install scripts, run for real against a hermetic artifact server:
+    # a v0.0.0-citest archive laid out exactly like a release, served from
+    # the runner's temp dir (NOT a testdata/ dir in the repo — a doc test
+    # forbids those), fetched via TABLEX_BASE_URL. Asserts the installed
+    # binary's version, idempotency (a second run must not duplicate the PATH
+    # entry), and the refusal path (a corrupted SHA256SUMS must install
+    # nothing). This is the pre-release gate; install-verify.yml repeats the
+    # exercise against the real published release.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+
+      - name: Stage a fake release and serve it (unix)
+        if: runner.os != 'Windows'
+        run: |
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            arm64 | aarch64) arch=arm64 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/stage" "$RUNNER_TEMP/serve"
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X main.version=v0.0.0-citest" \
+            -o "$RUNNER_TEMP/stage/tablex" ./cmd/tablex
+          cp LICENSE THIRD-PARTY-NOTICES "$RUNNER_TEMP/stage/"
+          tar -czf "$RUNNER_TEMP/serve/tablex_v0.0.0-citest_${os}_${arch}.tar.gz" \
+            -C "$RUNNER_TEMP/stage" tablex LICENSE THIRD-PARTY-NOTICES
+          cd "$RUNNER_TEMP/serve"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum tablex_* > SHA256SUMS
+          else
+            shasum -a 256 tablex_* > SHA256SUMS
+          fi
+          python3 -m http.server 8931 --directory "$RUNNER_TEMP/serve" >/dev/null 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8931/SHA256SUMS >/dev/null && break
+            sleep 1
+          done
+
+      - name: Install, re-install, refuse (unix)
+        if: runner.os != 'Windows'
+        env:
+          TABLEX_VERSION: v0.0.0-citest
+          TABLEX_BASE_URL: http://127.0.0.1:8931
+          # Deterministic PATH-block target for the idempotency assertion.
+          SHELL: /bin/bash
+        run: |
+          export TABLEX_INSTALL_DIR="$RUNNER_TEMP/tablex-bin"
+          # macOS: sha256sum sits in /sbin on the runner image, which is on
+          # the sealed read-only system volume and cannot be hidden by moving
+          # it. Dropping everything but /usr/bin:/bin from PATH removes it
+          # while keeping every tool the script needs (curl, tar, awk,
+          # shasum), so the shasum fallback chain is what actually gets
+          # exercised somewhere.
+          if [ "$(uname -s)" = Darwin ]; then
+            export PATH="/usr/bin:/bin"
+          fi
+          sh install.sh
+          got=$("$TABLEX_INSTALL_DIR/tablex" -version)
+          test "$got" = "tablex v0.0.0-citest" || { echo "::error::got '$got'"; exit 1; }
+          # -version returns before the config and the server ever load, so it
+          # cannot tell a working install from a binary that dies on startup.
+          # Actually serve: bind a temp port and answer /healthz.
+          "$TABLEX_INSTALL_DIR/tablex" -listen 127.0.0.1:18099 >"$RUNNER_TEMP/serve.log" 2>&1 &
+          srv=$!
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18099/healthz >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 1
+          done
+          kill "$srv" 2>/dev/null || true
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::the installed binary never served /healthz"
+            cat "$RUNNER_TEMP/serve.log" || true
+            exit 1
+          fi
+          # Idempotency: run again, then require exactly ONE marked PATH block.
+          sh install.sh
+          count=$(grep -c '>>> tablex >>>' "$HOME/.bashrc" 2>/dev/null || true)
+          test "${count:-0}" -eq 1 || { echo "::error::PATH block count = '$count', want 1"; exit 1; }
+          # Refusal: corrupt the checksums; the script must fail and install
+          # nothing.
+          sums="$RUNNER_TEMP/serve/SHA256SUMS"
+          cp "$sums" "$sums.bak"
+          awk '{ printf "%064d  %s\n", 0, $2 }' "$sums.bak" > "$sums"
+          export TABLEX_INSTALL_DIR="$RUNNER_TEMP/tablex-bin-neg"
+          if sh install.sh; then
+            echo "::error::install succeeded against a corrupted SHA256SUMS"
+            exit 1
+          fi
+          test ! -e "$TABLEX_INSTALL_DIR/tablex" || { echo "::error::binary installed despite refusal"; exit 1; }
+          cp "$sums.bak" "$sums"
+
+      - name: Stage a fake release and serve it (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\stage", "$env:RUNNER_TEMP\serve" | Out-Null
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags "-s -w -X main.version=v0.0.0-citest" `
+            -o "$env:RUNNER_TEMP\stage\tablex.exe" ./cmd/tablex
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item LICENSE, THIRD-PARTY-NOTICES "$env:RUNNER_TEMP\stage"
+          Compress-Archive -Path "$env:RUNNER_TEMP\stage\*" `
+            -DestinationPath "$env:RUNNER_TEMP\serve\tablex_v0.0.0-citest_windows_amd64.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\serve\tablex_v0.0.0-citest_windows_amd64.zip").Hash.ToLower()
+          "$hash  tablex_v0.0.0-citest_windows_amd64.zip" | Out-File "$env:RUNNER_TEMP\serve\SHA256SUMS" -Encoding ascii
+          # install.cmd fetches install.ps1 by URL; serve the real one.
+          Copy-Item install.ps1 "$env:RUNNER_TEMP\serve"
+          Start-Process -FilePath python -WindowStyle Hidden `
+            -ArgumentList '-m', 'http.server', '8931', '--directory', "$env:RUNNER_TEMP\serve"
+          $up = $false
+          foreach ($i in 1..30) {
+            try {
+              Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8931/SHA256SUMS | Out-Null
+              $up = $true; break
+            } catch { Start-Sleep 1 }
+          }
+          if (-not $up) { throw 'artifact server never came up' }
+
+      - name: Install, re-install, refuse (windows, both editions)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TABLEX_VERSION: v0.0.0-citest
+          TABLEX_BASE_URL: http://127.0.0.1:8931
+        run: |
+          $env:TABLEX_INSTALL_DIR = "$env:RUNNER_TEMP\tablex-bin"
+          # Windows PowerShell 5.1 — the edition `irm | iex` hits by default.
+          powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'powershell-edition install failed' }
+          $got = & "$env:TABLEX_INSTALL_DIR\tablex.exe" -version
+          if ($got -ne 'tablex v0.0.0-citest') { throw "got '$got'" }
+          # PowerShell 7, same install dir: still works, and the user PATH
+          # must end up with exactly ONE entry after multiple runs.
+          pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'pwsh-edition install failed' }
+          $want = $env:TABLEX_INSTALL_DIR.TrimEnd('\')
+          $entries = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') |
+            ForEach-Object { $_.Trim().TrimEnd('\') }
+          $n = @($entries | Where-Object { $_ -eq $want }).Count
+          if ($n -ne 1) { throw "user PATH holds $n entries for the install dir, want 1" }
+          # The cmd.exe bootstrap, pointed at the served install.ps1.
+          $env:TABLEX_PS1_URL = 'http://127.0.0.1:8931/install.ps1'
+          cmd /c install.cmd
+          if ($LASTEXITCODE -ne 0) { throw 'install.cmd failed' }
+          # Refusal: corrupt the checksums; the script must fail and install
+          # nothing.
+          $sums = "$env:RUNNER_TEMP\serve\SHA256SUMS"
+          Copy-Item $sums "$sums.bak"
+          ('0' * 64 + '  tablex_v0.0.0-citest_windows_amd64.zip') | Out-File $sums -Encoding ascii
+          $env:TABLEX_INSTALL_DIR = "$env:RUNNER_TEMP\tablex-bin-neg"
+          powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+          if ($LASTEXITCODE -eq 0) { throw 'install succeeded against a corrupted SHA256SUMS' }
+          if (Test-Path "$env:TABLEX_INSTALL_DIR\tablex.exe") { throw 'binary installed despite refusal' }
+          Copy-Item "$sums.bak" $sums -Force
+          # The Actions pwsh wrapper ends every step with `exit $LASTEXITCODE`,
+          # and the last native command above is the negative test's EXPECTED
+          # exit 1 — cmdlets never reset it. Every assertion passed to reach
+          # this line, so say so explicitly.
+          exit 0
+
+      - name: User PATH registry kind preservation (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TABLEX_VERSION: v0.0.0-citest
+          TABLEX_BASE_URL: http://127.0.0.1:8931
+        run: |
+          # install.ps1 writes the user PATH through the raw registry API:
+          # the existing value KIND must survive (the [Environment] pair used
+          # to convert REG_EXPAND_SZ to REG_SZ and bake in every %VAR%
+          # expansion), a literal %VAR% entry must stay literal, and an
+          # ABSENT value is created as REG_EXPAND_SZ. The earlier install
+          # step's entry-count assertion reads through the expanding API and
+          # cannot see any of this. The runner's own value is restored in the
+          # finally.
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+          $origPath = $envKey.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $origKind = if ($null -ne $origPath) { $envKey.GetValueKind('Path') } else { $null }
+          try {
+            function Invoke-CITestInstall([string]$dir) {
+              $env:TABLEX_INSTALL_DIR = $dir
+              powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+              if ($LASTEXITCODE -ne 0) { throw "install into $dir failed" }
+            }
+            # (1) REG_EXPAND_SZ holding a %VAR% entry: the kind survives and
+            # the entry stays literal instead of being baked in.
+            $envKey.SetValue('Path', '%SystemRoot%\citest-keep', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            Invoke-CITestInstall "$env:RUNNER_TEMP\tablex-kind-expand"
+            if ($envKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'REG_EXPAND_SZ was converted' }
+            $raw = $envKey.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if ($raw -notlike '*%SystemRoot%\citest-keep*') { throw "the literal %VAR% entry was expanded or dropped: $raw" }
+            if ($raw -notlike '*tablex-kind-expand*') { throw "the install dir is missing from the PATH: $raw" }
+            # (2) REG_SZ stays REG_SZ — an unconditional ExpandString write
+            # would make a literal %NAME% path start expanding.
+            $envKey.SetValue('Path', 'C:\citest-plain', [Microsoft.Win32.RegistryValueKind]::String)
+            Invoke-CITestInstall "$env:RUNNER_TEMP\tablex-kind-plain"
+            if ($envKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::String) { throw 'REG_SZ was converted' }
+            # (3) An absent value is created as REG_EXPAND_SZ.
+            $envKey.DeleteValue('Path', $false)
+            Invoke-CITestInstall "$env:RUNNER_TEMP\tablex-kind-absent"
+            if ($envKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'an absent PATH was not created as REG_EXPAND_SZ' }
+          } finally {
+            if ($null -ne $origPath) { $envKey.SetValue('Path', $origPath, $origKind) } else { $envKey.DeleteValue('Path', $false) }
+            $envKey.Close()
+          }
+          exit 0

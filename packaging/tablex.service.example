@@ -1,0 +1,54 @@
+# TableX systemd unit — an EXAMPLE, deliberately not installed as a unit.
+#
+# The .deb/.rpm packages ship this file under /usr/share/doc/tablex/ instead of
+# /usr/lib/systemd/system/ on purpose: TableX is a database-administration
+# login page, and a package install must never auto-start one. Opting in is
+# three explicit steps:
+#
+#   1. Copy:    cp /usr/share/doc/tablex/tablex.service.example /etc/systemd/system/tablex.service
+#   2. Review:  edit the listen address, TLS and config below for your setup
+#   3. Enable:  systemctl daemon-reload && systemctl enable --now tablex
+#
+# The unit listens on loopback only. To serve beyond localhost, put TableX
+# behind a TLS-terminating reverse proxy or configure its own TLS via
+# TABLEX_TLS_CERT / TABLEX_TLS_KEY — never expose the plain-HTTP listener.
+
+[Unit]
+Description=TableX — single-binary multi-database web admin
+Documentation=https://tablex.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/tablex -listen 127.0.0.1:8080
+# Configuration is flags + TABLEX_* env + optional TOML; see
+# /usr/share/doc/tablex/tablex.example.toml for every knob.
+#Environment=TABLEX_CONFIG=/etc/tablex/tablex.toml
+
+# Hardening. TableX needs nothing from the host beyond outbound sockets to the
+# databases it administers, so almost everything can be taken away.
+DynamicUser=yes
+# Writable state for the OPTIONAL [storage]/[audit] subsystems
+# (%S/tablex = /var/lib/tablex). Harmless when unused.
+StateDirectory=tablex
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

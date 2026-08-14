@@ -1,0 +1,115 @@
+{{define "content" -}}
+{{with .Body}}
+<div class="tx-login-wrap">
+  <form id="login_form" method="post" action="/login" class="tx-login" x-data="loginForm" data-engine="{{.Engine}}">
+    {{template "csrf" $.CSRF}}
+    <div class="card tx-login-card">
+      <div class="card-header tx-login-header">
+        <span class="tx-logo-mark">▦</span> TableX — Log in
+      </div>
+      <div class="card-body">
+        {{if .Error}}<div class="alert tx-alert tx-alert-error" role="alert">{{icon "error"}} {{.Error}}</div>{{end}}
+
+        {{if .Servers}}
+        <div class="row mb-3">
+          <label for="select_server" class="col-sm-4 col-form-label">Predefined server</label>
+          <div class="col-sm-8">
+            <select name="server" id="select_server" class="form-select form-select-sm" x-model="server">
+              {{if .AllowAdHoc}}<option value="">— Ad-hoc connection —</option>{{end}}
+              {{range .Servers}}<option value="{{.Name}}"{{if eq $.Body.Server .Name}} selected{{end}} data-needs-user="{{if .NeedsUser}}1{{end}}" data-needs-password="{{if .NeedsPassword}}1{{end}}">{{.Name}} ({{.Engine}}{{if .Host}} · {{.Host}}{{end}})</option>{{end}}
+            </select>
+          </div>
+        </div>
+        {{end}}
+
+        {{if not (or .Servers .AllowAdHoc)}}
+        <div class="alert tx-alert tx-alert-warning" role="alert">{{icon "warning"}} No predefined servers are configured and ad-hoc login is disabled. Ask the administrator to configure a server.</div>
+        {{end}}
+
+        {{if .AllowAdHoc}}
+        {{/* Ad-hoc connection topology (engine/host/port/database/sslmode). Plain
+             HTML (not an x-if <template>) so the form is usable without
+             JavaScript; Alpine only toggles visibility via x-show. A predefined
+             server's topology comes from config, so these stay ad-hoc-only. */}}
+        <div class="row mb-3" x-show="adhoc">
+          <label for="engine" class="col-sm-4 col-form-label">Engine</label>
+          <div class="col-sm-8">
+            <select name="engine" id="engine" class="form-select form-select-sm" x-model="engine" x-on:change="onEngine">
+              {{range .Engines}}<option value="{{.Name}}"{{if eq $.Body.Engine .Name}} selected{{end}} data-port="{{.DefaultPort}}" data-show-sslmode="{{if .ShowSSLMode}}1{{end}}" data-ssl-note="{{.SSLNote}}" data-db-label="{{.DBLabel}}" data-db-placeholder="{{.DBPlaceholder}}" data-db-default="{{.DBDefault}}" data-db-note="{{.DBNote}}">{{.DisplayName}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+
+        <div x-show="showNetwork">
+          <div class="row mb-3">
+            <label for="host" class="col-sm-4 col-form-label">Host</label>
+            <div class="col-sm-8"><input type="text" name="host" id="host" class="form-control form-control-sm" value="{{default .Host "127.0.0.1"}}" autocomplete="off"></div>
+          </div>
+          <div class="row mb-3">
+            <label for="port" class="col-sm-4 col-form-label">Port</label>
+            <div class="col-sm-8"><input type="number" name="port" id="port" class="form-control form-control-sm" value="{{.Port}}" x-ref="port" autocomplete="off"></div>
+          </div>
+        </div>
+        {{end}}
+
+        {{/* Credentials render for BOTH ad-hoc and predefined logins: a predefined
+             server may leave the user and/or password to be collected at login.
+             Shown per-field via Alpine; the password is never pre-filled. Plain
+             HTML so the no-JS fallback still submits them. */}}
+        <div x-show="showCredentials">
+          <div class="row mb-3" x-show="showUser">
+            <label for="input_username" class="col-sm-4 col-form-label">Username</label>
+            <div class="col-sm-8"><input type="text" name="username" id="input_username" class="form-control form-control-sm" value="{{.User}}" autocomplete="username"></div>
+          </div>
+          <div class="row mb-3" x-show="showPassword">
+            <label for="input_password" class="col-sm-4 col-form-label">Password</label>
+            <div class="col-sm-8"><input type="password" name="password" id="input_password" class="form-control form-control-sm" autocomplete="current-password"></div>
+          </div>
+        </div>
+
+        {{if .AllowAdHoc}}
+        <div x-show="showNetwork">
+          <div class="row mb-3">
+            <label for="database" class="col-sm-4 col-form-label" x-text="dbLabel">Database</label>
+            <div class="col-sm-8">
+              <input type="text" name="database" id="database" class="form-control form-control-sm" value="{{.Database}}" placeholder="optional" x-bind:placeholder="dbPlaceholder" autocomplete="off">
+              {{/* Per-engine help text comes from the selected <option>'s
+                   data-db-note; without JavaScript this stays an empty div. */}}
+              <div class="form-text" x-show="dbNote" x-text="dbNote"></div>
+            </div>
+          </div>
+          <div class="row mb-3" x-show="showSSL">
+            <label for="sslmode" class="col-sm-4 col-form-label">SSL mode</label>
+            <div class="col-sm-8">
+              {{$ssl := or .SSLMode "prefer"}}
+              <select name="sslmode" id="sslmode" class="form-select form-select-sm">
+                <option value="disable"{{if eq $ssl "disable"}} selected{{end}}>disable</option>
+                <option value="allow"{{if eq $ssl "allow"}} selected{{end}}>allow</option>
+                <option value="prefer"{{if eq $ssl "prefer"}} selected{{end}}>prefer (default — may use plaintext)</option>
+                <option value="require"{{if eq $ssl "require"}} selected{{end}}>require</option>
+                <option value="verify-ca"{{if eq $ssl "verify-ca"}} selected{{end}}>verify-ca</option>
+                <option value="verify-full"{{if eq $ssl "verify-full"}} selected{{end}}>verify-full</option>
+              </select>
+              {{/* Unlike the database hint above, this one is SERVER-RENDERED
+                   with the selected engine's note as its initial content, and
+                   Alpine's x-text only takes over on change. It must not be
+                   empty without JavaScript: its whole job is to stop MySQL's
+                   `prefer` being read with libpq's meaning, on a form this repo
+                   deliberately keeps usable with no JavaScript at all. The
+                   initial value Alpine computes is the same string, so there is
+                   no flicker and nothing can diverge. */}}
+              <div class="form-text" x-show="sslNote" x-text="sslNote">{{range .Engines}}{{if eq $.Body.Engine .Name}}{{.SSLNote}}{{end}}{{end}}</div>
+            </div>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      <div class="card-footer tx-login-footer">
+        <input type="submit" id="input_go" class="btn btn-primary" value="Log in">
+      </div>
+    </div>
+    <p class="tx-login-about">TableX · <a href="https://tablex.dev" target="_blank" rel="noopener">tablex.dev</a></p>
+  </form>
+</div>
+{{end}}
+{{- end}}

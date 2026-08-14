@@ -1,0 +1,368 @@
+{{define "content" -}}
+{{with .Body}}
+{{$body := .}}
+{{$sc := .Scope}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{if .IsView}}{{icon "view"}}{{else}}{{icon "table"}}{{end}} {{$sc.Table}} · Structure
+    {{if .HasRowCount}}<span class="text-muted tx-rowcount"{{if .RowCountApprox}} title="Approximate — an engine statistics estimate, or a count stopped at the max_exact_count ceiling"{{end}}>{{if .RowCountApprox}}≈ {{end}}{{humanInt .RowCount}} rows</span>{{end}}
+  </h2>
+
+  {{if .SectionError}}<div class="alert tx-alert tx-alert-error" role="alert"><div class="tx-alert-msg">{{icon "warning"}} Some structure details could not be loaded: {{.SectionError}}</div></div>{{end}}
+
+  <h3 class="tx-section-title">Columns</h3>
+  <div class="table-responsive">
+    <table class="table table-striped table-sm tx-results">
+      <thead>
+        <tr><th scope="col">#</th><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Null</th><th scope="col">Default</th><th scope="col">Extra</th><th scope="col">Comment</th>{{if $body.CanEdit}}<th scope="col" class="text-center">Action</th>{{end}}</tr>
+      </thead>
+      <tbody>
+        {{range .Columns}}
+        <tr>
+          <td class="text-muted">{{.Position}}</td>
+          <td class="tx-tbl-name">{{if .IsPrimaryKey}}{{icon "key"}} {{end}}{{.Name}}</td>
+          <td class="tx-col-type">{{.DataType}}{{if .IsAutoIncrement}} <span class="text-muted">auto</span>{{end}}</td>
+          <td>{{if .Nullable}}Yes{{else}}<strong>No</strong>{{end}}</td>
+          <td>{{if .IsGenerated}}{{if .GeneratedExpr}}<code>{{.GeneratedExpr}}</code>{{else}}<span class="text-muted">generated</span>{{end}}{{else if .Default}}<code>{{deref .Default}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+          <td class="text-muted">{{.ExtraDisplay}}{{if .IsGenerated}} generated{{if .GeneratedKind}} ({{.GeneratedKind}}){{end}}{{end}}</td>
+          <td class="text-muted">{{.Comment}}</td>
+          {{if $body.CanEdit}}
+          <td class="text-center tx-act">
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $body.PostURL "Action" "drop_column"
+              "Fields" (dict "column" .Name)
+              "Confirm" (printf `Drop column "%s"? This cannot be undone.` .Name)
+              "Icon" "delete" "Title" "Drop column"
+              "Class" "d-inline" "ButtonClass" "btn btn-link btn-sm tx-danger p-0")}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  {{if .CanEdit}}
+  <details class="tx-edit-form">
+    <summary class="btn btn-tx btn-sm">{{icon "insert"}} Add column</summary>
+    <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="tx-edit-form-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="add_column">
+      <div class="mb-2">
+        <label class="form-label mb-0">Name</label>
+        <input type="text" name="col_name" class="form-control form-control-sm" required aria-label="New column name">
+      </div>
+      {{template "column_form_fields" .AddForm}}
+      <div class="tx-sql-actions"><button type="submit" class="btn btn-primary btn-sm">{{icon "check"}} Add column</button></div>
+    </form>
+  </details>
+
+  {{if .Caps.SupportsColumnModify}}
+  {{/* Column SELECTION is a GET round-trip (?modify=<column>): the server
+       prefills the editor below from live introspection, so a no-JS submit
+       preserves everything the user did not change. The POST editor carries
+       the column as an immutable hidden input — a changeable selector inside
+       the POST form could re-point stale values at another column. With JS,
+       htmx swaps the same GET in place so the flow stays seamless. */}}
+  <details class="tx-edit-form"{{if .ModifyForm}} open{{end}}>
+    <summary class="btn btn-tx btn-sm">{{icon "edit"}} Modify column</summary>
+    <div class="tx-edit-form-body">
+      <form method="get" action="{{.PostURL}}" class="mb-2">
+        {{if $sc.Schema}}<input type="hidden" name="schema" value="{{$sc.Schema}}">{{end}}
+        <label class="form-label mb-0 me-1">Column</label>
+        <select name="modify" class="form-select form-select-sm d-inline-block w-auto" aria-label="Column to modify"
+                hx-get="{{.PostURL}}" hx-include="closest form" hx-push-url="true" hx-trigger="change">
+          {{range .ModifyColumns}}<option value="{{.Name}}"{{if eq .Name $body.ModifySelected}} selected{{end}}>{{.Name}}{{if .Generated}} (generated){{end}}</option>{{end}}
+        </select>
+        <button type="submit" class="btn btn-tx btn-sm">{{icon "edit"}} Edit</button>
+      </form>
+      {{with .ModifyForm}}
+      <form method="post" action="{{$body.PostURL}}" hx-post="{{$body.PostURL}}">
+        {{template "csrf" $.CSRF}}
+        <input type="hidden" name="action" value="modify_column">
+        <input type="hidden" name="column" value="{{$body.ModifySelected}}">
+        {{template "column_form_fields" .}}
+        <div class="tx-sql-actions"><button type="submit" class="btn btn-primary btn-sm"{{if .TypeUnrecognized}} disabled{{end}}>{{icon "check"}} Apply {{$body.ModifySelected}}</button></div>
+      </form>
+      {{end}}
+    </div>
+  </details>
+  {{end}}
+
+  {{if .Caps.SupportsColumnRename}}
+  {{/* Rename is its own form, not a field on the Modify editor: SQLite has no
+       Modify editor at all yet can rename, and a rename must never carry the
+       rest of the form's values (see driver.ColumnRenamer). */}}
+  <details class="tx-edit-form">
+    <summary class="btn btn-tx btn-sm">{{icon "edit"}} Rename column</summary>
+    <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="tx-edit-form-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="rename_column">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label mb-0 d-block">Column</label>
+          <select name="column" class="form-select form-select-sm" required aria-label="Column to rename">
+            {{range .Columns}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0">New name</label>
+          <input type="text" name="new_name" class="form-control form-control-sm" required aria-label="New column name">
+        </div>
+      </div>
+      <div class="tx-sql-actions"><button type="submit" class="btn btn-primary btn-sm">{{icon "check"}} Rename column</button></div>
+    </form>
+  </details>
+  {{end}}
+  {{end}}
+
+  {{if or .Indexes .CanEdit}}
+  <h3 class="tx-section-title">{{icon "index"}} Indexes</h3>
+  {{if .Indexes}}
+  <div class="table-responsive">
+    <table class="table table-striped table-sm tx-results">
+      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Unique</th><th scope="col">Columns</th>{{if $body.CanEdit}}<th scope="col" class="text-center">Action</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Indexes}}
+        <tr>
+          <td>{{if .Primary}}{{icon "key"}} {{end}}{{.Name}}</td>
+          <td class="text-muted">{{default .Type "BTREE"}}</td>
+          <td>{{yesno .Unique}}</td>
+          <td><code>{{join .ColumnDisplay ", "}}</code>{{if .Predicate}} <span class="text-muted">WHERE <code>{{.Predicate}}</code></span>{{end}}</td>
+          {{if $body.CanEdit}}
+          <td class="text-center tx-act">
+            {{if not .Primary}}
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $body.PostURL "Action" "drop_index"
+              "Fields" (dict "index_name" .Name)
+              "Confirm" (printf `Drop index "%s"?` .Name)
+              "Icon" "delete" "Title" "Drop index"
+              "Class" "d-inline" "ButtonClass" "btn btn-link btn-sm tx-danger p-0")}}
+            {{end}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  {{if .CanEdit}}
+  <details class="tx-edit-form">
+    <summary class="btn btn-tx btn-sm">{{icon "index"}} Add index</summary>
+    <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="tx-edit-form-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="add_index">
+      <div class="row g-2 align-items-end mb-2">
+        <div class="col-auto">
+          <label class="form-label mb-0">Name</label>
+          <input type="text" name="index_name" class="form-control form-control-sm" required aria-label="Index name">
+        </div>
+        <div class="col-auto"><label class="mb-0"><input type="checkbox" name="index_unique" value="1"> Unique</label></div>
+        {{if .IndexOptions.Methods}}
+        <div class="col-auto">
+          <label class="form-label mb-0">Method</label>
+          <select name="index_method" class="form-select form-select-sm" aria-label="Index method">
+            <option value="">Default</option>
+            {{range .IndexOptions.Methods}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </div>
+        {{end}}
+        {{/* Dollar-scoped: this file is inside {{with .Body}}, so Allow is only
+             reachable from the root. The predicate is user-WRITTEN SQL running
+             on the server, which is what allow_console governs — offering a
+             field the handler will refuse is worse than not offering it. The
+             rest of the index form stays: creating an index is DDL. */}}
+        {{if and .IndexOptions.SupportsPartial $.Allow.Console}}
+        <div class="col-auto">
+          <label class="form-label mb-0">Condition (partial index)</label>
+          <input type="text" name="index_where" class="form-control form-control-sm" placeholder="e.g. qty &gt; 0" aria-label="Partial index condition">
+        </div>
+        {{end}}
+      </div>
+      {{/* One ROW per key part, not a multi-select: a browser submits a
+           multi-select's options in DOM order rather than selection order, so
+           the key ORDER of a composite index was never expressible — and a
+           prefix length and direction belong to a single column, not the set. */}}
+      <table class="table table-sm tx-results mb-2">
+        <thead><tr>
+          <th scope="col">#</th><th scope="col">Column</th>
+          {{if .IndexOptions.SupportsPrefix}}<th scope="col">Prefix</th>{{end}}
+          {{if .IndexOptions.SupportsDesc}}<th scope="col">Descending</th>{{end}}
+        </tr></thead>
+        <tbody>
+          {{range $i := .IndexRowIndex}}
+          <tr>
+            <td class="text-muted">{{add $i 1}}</td>
+            <td>
+              <select name="index_columns" class="form-select form-select-sm" aria-label="Index column {{add $i 1}}">
+                <option value="">—</option>
+                {{range $body.Columns}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+              </select>
+            </td>
+            {{if $body.IndexOptions.SupportsPrefix}}
+            <td><input type="text" name="index_prefix_{{$i}}" class="form-control form-control-sm tx-len-input" inputmode="numeric" placeholder="all" aria-label="Prefix length for index column {{add $i 1}}"></td>
+            {{end}}
+            {{if $body.IndexOptions.SupportsDesc}}
+            <td class="text-center"><input type="checkbox" name="index_desc_{{$i}}" value="1" aria-label="Descending for index column {{add $i 1}}"></td>
+            {{end}}
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      <div class="tx-sql-actions"><button type="submit" class="btn btn-primary btn-sm">{{icon "check"}} Add index</button></div>
+    </form>
+  </details>
+  {{end}}
+  {{end}}
+
+  {{if or .ForeignKeys (and .CanEdit .Caps.SupportsForeignKeyDDL)}}
+  <h3 class="tx-section-title">{{icon "fk"}} Foreign keys</h3>
+  {{if .ForeignKeys}}
+  <div class="table-responsive">
+    <table class="table table-striped table-sm tx-results">
+      <thead><tr><th scope="col">Name</th><th scope="col">Columns</th><th scope="col">References</th><th scope="col">On update</th><th scope="col">On delete</th>{{if and $body.CanEdit $body.Caps.SupportsForeignKeyDDL}}<th scope="col" class="text-center">Action</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .ForeignKeys}}
+        <tr>
+          <td>{{if .Synthetic}}<span class="text-muted fst-italic" title="This engine does not name foreign keys; the label is generated by TableX and does not exist in the schema.">{{.Name}} (unnamed)</span>{{else}}{{.Name}}{{end}}</td>
+          <td><code>{{join .Columns ", "}}</code></td>
+          <td>{{if .RefHidden}}<span class="text-muted fst-italic" title="This key references a database outside restrict.database_allowlist, so its table and columns are not shown.">(hidden)</span>{{else}}<code>{{if .RefSchema}}{{.RefSchema}}.{{end}}{{.RefTable}}({{join .RefColumns ", "}})</code>{{end}}</td>
+          <td class="text-muted">{{default .OnUpdate "—"}}</td>
+          <td class="text-muted">{{default .OnDelete "—"}}</td>
+          {{if and $body.CanEdit $body.Caps.SupportsForeignKeyDDL}}
+          <td class="text-center tx-act">
+            {{template "destructive" (dict
+              "CSRF" $.CSRF "URL" $body.PostURL "Action" "drop_fk"
+              "Fields" (dict "fk_name" .Name)
+              "Confirm" (printf `Drop foreign key "%s"?` .Name)
+              "Icon" "delete" "Title" "Drop foreign key"
+              "Class" "d-inline" "ButtonClass" "btn btn-link btn-sm tx-danger p-0")}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  {{if and .CanEdit .Caps.SupportsForeignKeyDDL}}
+  <details class="tx-edit-form">
+    <summary class="btn btn-tx btn-sm">{{icon "fk"}} Add foreign key</summary>
+    <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="tx-edit-form-body">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="action" value="add_fk">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label mb-0">Constraint name</label>
+          <input type="text" name="fk_name" class="form-control form-control-sm" required aria-label="Constraint name">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0 d-block">Columns</label>
+          <select name="fk_columns" class="form-select form-select-sm" multiple size="4" required aria-label="Local columns">
+            {{range .Columns}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0">References table</label>
+          <select name="fk_ref_table" class="form-select form-select-sm" aria-label="Referenced table">
+            {{range .Tables}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0">Referenced columns</label>
+          <input type="text" name="fk_ref_columns" class="form-control form-control-sm" placeholder="comma-separated" aria-label="Referenced columns">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0">On update</label>
+          <select name="fk_on_update" class="form-select form-select-sm" aria-label="On update action">
+            <option value=""></option><option>NO ACTION</option><option>RESTRICT</option><option>CASCADE</option><option>SET NULL</option><option>SET DEFAULT</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0">On delete</label>
+          <select name="fk_on_delete" class="form-select form-select-sm" aria-label="On delete action">
+            <option value=""></option><option>NO ACTION</option><option>RESTRICT</option><option>CASCADE</option><option>SET NULL</option><option>SET DEFAULT</option>
+          </select>
+        </div>
+      </div>
+      <div class="tx-sql-actions"><button type="submit" class="btn btn-primary btn-sm">{{icon "check"}} Add foreign key</button></div>
+    </form>
+  </details>
+  {{end}}
+  {{end}}
+
+  {{if .DDL}}
+  <h3 class="tx-section-title">{{icon "sql"}} CREATE statement</h3>
+  <pre class="tx-ddl">{{.DDL}}</pre>
+  {{end}}
+</div>
+{{end}}
+{{- end}}
+
+{{/* Reusable column controls (type + length + null + default + comment), shared
+     by the Add-column and Modify-column forms. Dot is a columnFormVM: the type
+     allowlist plus the current values to prefill (zero for Add). Prefill is
+     rendered SERVER-SIDE so the controls are correct without JavaScript.
+     Field names are fixed and read by runStructureOp. */}}
+{{define "column_form_fields"}}
+{{$sel := .Sel}}
+<div class="row g-2 align-items-end">
+  <div class="col-auto">
+    <label class="form-label mb-0">Type</label>
+    <select name="col_type" class="form-select form-select-sm" aria-label="Column type">
+      {{if .TypeUnrecognized}}<option value="" disabled selected>{{$sel.Type}} (unrecognized — choose a type)</option>{{end}}
+      {{range .ColumnTypes}}<option value="{{.}}"{{if eq . $sel.Type}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label mb-0">Length</label>
+    <input type="text" name="col_length" class="form-control form-control-sm" value="{{$sel.Length}}" placeholder="e.g. 255 or 10,2" aria-label="Length or precision">
+  </div>
+  {{if .ValueListTypes}}
+  {{/* ENUM/SET members, one per line — newline-separated so a value may
+       contain a comma or a quote without any parsing ambiguity. The field is
+       always present rather than revealed by script, so the form works with
+       JavaScript off; it is simply ignored for every other type. */}}
+  <div class="col-auto">
+    {{/* No id/for pair: this partial is rendered twice on the page (Add and
+         Modify), and a duplicated id is worse for a screen reader than an
+         aria-label is. */}}
+    <label class="form-label mb-0">Values ({{join .ValueListTypes "/"}})</label>
+    <textarea name="col_values" class="form-control form-control-sm tx-values-input" rows="2"
+              placeholder="one per line"
+              aria-label="{{join .ValueListTypes " or "}} values, one per line">{{$sel.Values}}</textarea>
+  </div>
+  {{end}}
+  <div class="col-auto"><label class="mb-0"><input type="checkbox" name="col_nullable" value="1"{{if $sel.Nullable}} checked{{end}}> Allow NULL</label></div>
+  <div class="col-auto">
+    <label class="form-label mb-0">Default</label>
+    <select name="default_mode" class="form-select form-select-sm" aria-label="Default kind">
+      <option value="none">None</option>
+      <option value="null"{{if eq $sel.DefaultMode "null"}} selected{{end}}>NULL</option>
+      <option value="current"{{if eq $sel.DefaultMode "current"}} selected{{end}}>CURRENT_TIMESTAMP</option>
+      <option value="custom"{{if eq $sel.DefaultMode "custom"}} selected{{end}}>As defined:</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label mb-0">Default value</label>
+    <input type="text" name="default_value" class="form-control form-control-sm" value="{{$sel.DefaultValue}}" placeholder="custom value" aria-label="Custom default value">
+  </div>
+  <div class="col-auto">
+    <label class="form-label mb-0">Comment</label>
+    <input type="text" name="col_comment" class="form-control form-control-sm" value="{{$sel.Comment}}" aria-label="Column comment">
+  </div>
+  {{if .CanPosition}}
+  {{/* Only MySQL/MariaDB can reorder columns; the other engines have no such
+       statement, so the control is absent there rather than present and
+       ignored. The empty value means "do not move it". */}}
+  <div class="col-auto">
+    <label class="form-label mb-0">Position</label>
+    <select name="col_after" class="form-select form-select-sm" aria-label="Column position">
+      <option value="">{{.PositionKeepLabel}}</option>
+      <option value="{{.PlaceFirstToken}}">First</option>
+      {{range .PositionAfter}}<option value="{{.}}">After {{.}}</option>{{end}}
+    </select>
+  </div>
+  {{end}}
+</div>
+{{end}}

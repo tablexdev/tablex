@@ -1,0 +1,80 @@
+{{define "content" -}}
+{{with .Body}}
+{{$sc := .Scope}}
+{{$noun := "table"}}{{if .IsView}}{{$noun = "view"}}{{end}}
+<div class="tx-page">
+  <h2 class="tx-h2">{{icon "operations"}} Operations · {{$sc.Table}}</h2>
+  {{/* Every card on this page is an action, so under a policy that withholds
+       schema changes there is nothing left to render. The tab is withheld too;
+       this covers arriving by a bookmark. */}}
+  {{if $.Allow.DDL}}
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card tx-card mt-3">
+        <div class="card-header tx-card-header">Rename {{$noun}}</div>
+        <div class="card-body">
+          <form method="post" action="{{.PostURL}}" hx-post="{{.PostURL}}" class="d-flex gap-2">
+            {{template "csrf" $.CSRF}}
+            <input type="hidden" name="action" value="rename">
+            <input type="text" name="new_name" class="form-control form-control-sm" value="{{$sc.Table}}" required aria-label="New name for {{$noun}}">
+            <button type="submit" class="btn btn-tx btn-sm">{{icon "edit"}} Rename</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card tx-card mt-3">
+        <div class="card-header tx-card-header">Delete data or table</div>
+        <div class="card-body d-flex gap-2 flex-wrap">
+          {{if not .IsView}}
+          {{template "destructive" (dict
+            "CSRF" $.CSRF "URL" .PostURL "Action" "truncate"
+            "Confirm" (printf "Empty (truncate) %s? All rows will be deleted." $sc.Table)
+            "Icon" "empty" "Label" "Empty (truncate)"
+            "ButtonClass" "btn btn-tx btn-sm")}}
+          {{end}}
+          {{template "destructive" (dict
+            "CSRF" $.CSRF "URL" .PostURL "Action" "drop"
+            "Confirm" (printf "Drop %s %s? This cannot be undone." $noun $sc.Table)
+            "Label" (printf "Drop %s" $noun))}}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{if .Maintenance}}
+  <div class="card tx-card mt-3">
+    <div class="card-header tx-card-header">Table maintenance</div>
+    <div class="card-body">
+      {{/* One form per operation: the engine names its own set (OPTIMIZE/CHECK
+           on MySQL, VACUUM/REINDEX on PostgreSQL, ANALYZE on SQLite), and only
+           a name from that set is accepted back. Ops that lock or rewrite the
+           table carry a confirmation. */}}
+      <div class="d-flex gap-2 flex-wrap">
+        {{range .Maintenance}}
+        <form method="post" action="{{$.Body.PostURL}}" hx-post="{{$.Body.PostURL}}"
+              {{with .Confirm}}hx-confirm="{{.}}"{{end}} class="d-inline">
+          {{template "csrf" $.CSRF}}
+          <input type="hidden" name="action" value="maintain">
+          <input type="hidden" name="op" value="{{.Name}}">
+          <button type="submit" class="btn btn-tx btn-sm" title="{{.Note}}">{{icon "operations"}} {{.Label}}</button>
+        </form>
+        {{end}}
+      </div>
+
+      {{if .Report}}
+      <div class="mt-3">
+        <div class="tx-result-meta">{{icon "success"}} {{.ReportOp}} — server report</div>
+        {{if .Report.Rows}}{{template "result_grid" .Report}}
+        {{else}}<p class="text-muted mb-0">Completed; this engine reports nothing further.</p>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  {{else}}
+  <p class="text-muted">Not available on this TableX.</p>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

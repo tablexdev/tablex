@@ -1,0 +1,10 @@
+{{define "navbar_icons" -}}
+<div id="page_nav_icons" class="tx-page-nav-icons">
+  <button type="button" class="tx-iconbtn tx-nav-toggle" data-tx-nav-toggle title="Menu" aria-label="Toggle navigation" aria-controls="tx_nav" aria-expanded="false">{{icon "sidebar"}}</button>
+  {{template "breadcrumb" .}}
+  <span class="tx-engine-badge" title="Database server" aria-label="Database server: {{.Info.Flavor}} {{.Info.Version}}">{{icon "server-alt"}} <span class="tx-bar-label">{{.Info.Flavor}} <span class="tx-ver">{{.Info.Version}}</span></span></span>
+  <span class="tx-user" title="Connected user" aria-label="Connected user: {{default .Info.User "—"}}">{{icon "user"}} <span class="tx-bar-label">{{default .Info.User "—"}}</span></span>
+  <button type="button" class="tx-iconbtn" title="Toggle light / dark mode" data-tx-theme-toggle aria-label="Toggle light / dark mode">{{icon "theme"}}</button>
+  {{template "logout_form" .}}
+</div>
+{{- end}}

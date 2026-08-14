@@ -1,0 +1,6 @@
+{{/* csrf renders the hidden CSRF field every state-changing form needs. Call it
+     with the token, not the page: {{template "csrf" $.CSRF}} — inside a range,
+     `.` is the loop item, and $ reaches the page from anywhere. */}}
+{{define "csrf" -}}
+<input type="hidden" name="csrf_token" value="{{.}}">
+{{- end}}
